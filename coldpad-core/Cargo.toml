@@ -1,0 +1,10 @@
+[package]
+name = "coldpad-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rand.workspace = true
+sha2 = "0.10"
+subtle = "2"

@@ -1,0 +1,14 @@
+[workspace]
+members = ["coldpad-core", "coldpad"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+rand = "0.8"
+clap = { version = "4", features = ["derive"] }
+base64 = "0.22"
+hex = "0.4"

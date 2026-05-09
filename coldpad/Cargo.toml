@@ -1,0 +1,11 @@
+[package]
+name = "coldpad"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap.workspace = true
+base64.workspace = true
+hex.workspace = true
+coldpad-core.path = "../coldpad-core"

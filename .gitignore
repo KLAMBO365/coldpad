@@ -1,0 +1,11 @@
+/target
+*.otp
+*.otp.key
+*.otp.sha256
+AGENTS.md
+docs/
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*~
