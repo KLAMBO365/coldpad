@@ -385,24 +385,35 @@ fn cmd_decrypt(
 
     if let Some(out_path) = &output {
         std::fs::write(out_path, &plaintext)?;
+
+        output::group_start("coldpad decrypt");
+        output::info("decrypted:     ", format!("{} bytes", plaintext.len()));
+
+        verify_decryption(&ciphertext, &key, &plaintext, &file, true)?;
+
+        output::blank();
+        output::success("Decryption complete");
+        output::group_end();
     } else {
+        output::group_start("coldpad decrypt");
+        output::info("decrypted:     ", format!("{} bytes", plaintext.len()));
+
+        verify_decryption(&ciphertext, &key, &plaintext, &file, true)?;
+
         if io::stdout().is_terminal() && plaintext.contains(&0) {
             output::warn("output looks like binary data \u{2014} use -o to write to a file");
         }
+
+        output::blank();
+        output::success("Decryption complete");
+        output::group_end();
+
         io::stdout().write_all(&plaintext)?;
         if io::stdout().is_terminal() && !plaintext.ends_with(b"\n") {
             io::stdout().write_all(b"\n")?;
         }
     }
 
-    output::group_start("coldpad decrypt");
-    output::info("decrypted:     ", format!("{} bytes", plaintext.len()));
-
-    verify_decryption(&ciphertext, &key, &plaintext, &file, true)?;
-
-    output::blank();
-    output::success("Decryption complete");
-    output::group_end();
     Ok(())
 }
 
