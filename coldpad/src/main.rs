@@ -1,9 +1,13 @@
 use base64::Engine;
 use clap::{Parser, Subcommand};
+use std::fs::OpenOptions;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 mod output;
 
@@ -83,6 +87,42 @@ fn write_hash_file(hash_path: &Path, plaintext: &[u8]) -> Result<(), Box<dyn std
     Ok(())
 }
 
+fn write_secret_file(
+    path: &Path,
+    contents: &[u8],
+    force: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut options = OpenOptions::new();
+    options.write(true);
+    if force {
+        options.create(true).truncate(true);
+    } else {
+        options.create_new(true);
+    }
+
+    #[cfg(unix)]
+    options.mode(0o600);
+
+    let mut file = options.open(path).map_err(|e| {
+        if e.kind() == io::ErrorKind::AlreadyExists {
+            format!(
+                "'{}' already exists (use --force to overwrite)",
+                path.display()
+            )
+        } else {
+            format!("failed to write '{}': {e}", path.display())
+        }
+    })?;
+
+    file.write_all(contents)?;
+    file.flush()?;
+
+    #[cfg(unix)]
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+
+    Ok(())
+}
+
 fn read_hash_file(hash_path: &Path) -> Result<Option<String>, Box<dyn std::error::Error>> {
     match std::fs::read_to_string(hash_path) {
         Ok(contents) => Ok(Some(contents.trim().to_string())),
@@ -130,7 +170,9 @@ fn verify_decryption(
 
 fn encode_armored(data: &[u8], base64: bool, hex: bool) -> Vec<u8> {
     if base64 {
-        base64::engine::general_purpose::STANDARD.encode(data).into_bytes()
+        base64::engine::general_purpose::STANDARD
+            .encode(data)
+            .into_bytes()
     } else if hex {
         hex::encode(data).into_bytes()
     } else {
@@ -153,8 +195,7 @@ fn decode_if_armored(
     } else if hex {
         let s = std::str::from_utf8(&data)
             .map_err(|_| format!("{context} is not valid UTF-8 (required for hex)"))?;
-        hex::decode(s.trim())
-            .map_err(|e| format!("{context} is not valid hex: {e}").into())
+        hex::decode(s.trim()).map_err(|e| format!("{context} is not valid hex: {e}").into())
     } else {
         Ok(data)
     }
@@ -169,7 +210,11 @@ fn default_keygen_name() -> PathBuf {
 }
 
 #[derive(Parser)]
-#[command(name = "coldpad", version, about = "ColdPad — one-time pad encryption tool")]
+#[command(
+    name = "coldpad",
+    version,
+    about = "ColdPad — one-time pad encryption tool"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -177,34 +222,71 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    #[command(alias = "e", about = "Encrypt text, piped input, or a file using a one-time pad")]
+    #[command(
+        alias = "e",
+        about = "Encrypt text, piped input, or a file using a one-time pad"
+    )]
     Encrypt {
-        #[arg(help = "Text to encrypt (omit to pipe input or use --file)")]
+        #[arg(
+            help = "Text to encrypt (omit to pipe input or use --file)",
+            conflicts_with = "file"
+        )]
         text: Option<String>,
         #[arg(short = 'o', long, help = "Output filename stem (default: output)")]
         output: Option<String>,
         #[arg(short = 'f', long, help = "Overwrite existing output files")]
         force: bool,
-        #[arg(short = 's', long, help = "Write a SHA-256 hash file for integrity verification")]
+        #[arg(
+            short = 's',
+            long,
+            help = "Write a SHA-256 hash file for integrity verification"
+        )]
         hash: bool,
-        #[arg(long, help = "Encrypt a file instead of text")]
+        #[arg(long, help = "Encrypt a file instead of text", conflicts_with = "text")]
         file: Option<PathBuf>,
-        #[arg(long, help = "Write ciphertext and key as base64", conflicts_with = "hex")]
+        #[arg(
+            long,
+            help = "Write ciphertext and key as base64",
+            conflicts_with = "hex"
+        )]
         base64: bool,
-        #[arg(long, help = "Write ciphertext and key as hex", conflicts_with = "base64")]
+        #[arg(
+            long,
+            help = "Write ciphertext and key as hex",
+            conflicts_with = "base64"
+        )]
         hex: bool,
     },
     #[command(alias = "d", about = "Decrypt a coldpad file")]
     Decrypt {
-        #[arg(help = "Path to the .otp ciphertext file (or use --file)")]
+        #[arg(
+            help = "Path to the .otp ciphertext file (or use --file)",
+            conflicts_with = "file_flag"
+        )]
         file: Option<PathBuf>,
-        #[arg(short = 'o', long, help = "Write decrypted output to a file instead of stdout")]
+        #[arg(
+            short = 'o',
+            long,
+            help = "Write decrypted output to a file instead of stdout"
+        )]
         output: Option<PathBuf>,
-        #[arg(long = "file", help = "Decrypt a .otp ciphertext file")]
+        #[arg(
+            long = "file",
+            help = "Decrypt a .otp ciphertext file",
+            conflicts_with = "file"
+        )]
         file_flag: Option<PathBuf>,
-        #[arg(long, help = "Read ciphertext and key as base64", conflicts_with = "hex")]
+        #[arg(
+            long,
+            help = "Read ciphertext and key as base64",
+            conflicts_with = "hex"
+        )]
         base64: bool,
-        #[arg(long, help = "Read ciphertext and key as hex", conflicts_with = "base64")]
+        #[arg(
+            long,
+            help = "Read ciphertext and key as hex",
+            conflicts_with = "base64"
+        )]
         hex: bool,
     },
     #[command(alias = "k", about = "Generate a random key")]
@@ -220,15 +302,33 @@ enum Command {
         #[arg(long, help = "Write key as hex", conflicts_with = "base64")]
         hex: bool,
     },
-    #[command(alias = "i", about = "Show information about an encrypted coldpad file")]
+    #[command(
+        alias = "i",
+        about = "Show information about an encrypted coldpad file"
+    )]
     Info {
-        #[arg(help = "Path to the .otp file (or use --file)")]
+        #[arg(
+            help = "Path to the .otp file (or use --file)",
+            conflicts_with = "file_flag"
+        )]
         file: Option<PathBuf>,
-        #[arg(long = "file", help = "Show info about a .otp ciphertext file")]
+        #[arg(
+            long = "file",
+            help = "Show info about a .otp ciphertext file",
+            conflicts_with = "file"
+        )]
         file_flag: Option<PathBuf>,
-        #[arg(long, help = "Read ciphertext and key as base64", conflicts_with = "hex")]
+        #[arg(
+            long,
+            help = "Read ciphertext and key as base64",
+            conflicts_with = "hex"
+        )]
         base64: bool,
-        #[arg(long, help = "Read ciphertext and key as hex", conflicts_with = "base64")]
+        #[arg(
+            long,
+            help = "Read ciphertext and key as hex",
+            conflicts_with = "base64"
+        )]
         hex: bool,
     },
 }
@@ -236,16 +336,35 @@ enum Command {
 fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
-        Some(Command::Encrypt { text, output, force, hash, file, base64, hex }) => {
-            cmd_encrypt(text, output, force, hash, file, base64, hex)
-        }
-        Some(Command::Decrypt { file, output, file_flag, base64, hex }) => {
-            cmd_decrypt(file.or(file_flag), output, base64, hex)
-        }
-        Some(Command::Keygen { length, output, force, base64, hex }) => {
-            cmd_keygen(length, output, force, base64, hex)
-        }
-        Some(Command::Info { file, file_flag, base64, hex }) => cmd_info(file.or(file_flag), base64, hex),
+        Some(Command::Encrypt {
+            text,
+            output,
+            force,
+            hash,
+            file,
+            base64,
+            hex,
+        }) => cmd_encrypt(text, output, force, hash, file, base64, hex),
+        Some(Command::Decrypt {
+            file,
+            output,
+            file_flag,
+            base64,
+            hex,
+        }) => cmd_decrypt(file.or(file_flag), output, base64, hex),
+        Some(Command::Keygen {
+            length,
+            output,
+            force,
+            base64,
+            hex,
+        }) => cmd_keygen(length, output, force, base64, hex),
+        Some(Command::Info {
+            file,
+            file_flag,
+            base64,
+            hex,
+        }) => cmd_info(file.or(file_flag), base64, hex),
         None => cmd_root(),
     };
     if let Err(e) = result {
@@ -319,7 +438,11 @@ fn cmd_encrypt(
     let hash_path = if hash {
         let path = cipher_path.with_extension("otp.sha256");
         if !force && path.exists() {
-            return Err(format!("'{}' already exists (use --force to overwrite)", path.display()).into());
+            return Err(format!(
+                "'{}' already exists (use --force to overwrite)",
+                path.display()
+            )
+            .into());
         }
         write_hash_file(&path, &plaintext)?;
         Some(path)
@@ -328,7 +451,7 @@ fn cmd_encrypt(
     };
 
     std::fs::write(&cipher_path, &out_cipher)?;
-    std::fs::write(&key_path, &out_key)?;
+    write_secret_file(&key_path, &out_key, force)?;
 
     output::group_start("coldpad encrypt");
     output::info("key size:      ", format!("{} bytes", key.len()));
@@ -349,7 +472,8 @@ fn cmd_decrypt(
     base64: bool,
     hex: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let file = file.ok_or("no ciphertext file provided. Pass a .otp file as an argument or use --file")?;
+    let file =
+        file.ok_or("no ciphertext file provided. Pass a .otp file as an argument or use --file")?;
     let raw_ciphertext = read_file(&file).map_err(|e| {
         let msg = e.to_string();
         if msg.contains("not found") {
@@ -384,12 +508,12 @@ fn cmd_decrypt(
     let plaintext = coldpad_core::decrypt(&ciphertext, &key);
 
     if let Some(out_path) = &output {
-        std::fs::write(out_path, &plaintext)?;
-
         output::group_start("coldpad decrypt");
         output::info("decrypted:     ", format!("{} bytes", plaintext.len()));
 
         verify_decryption(&ciphertext, &key, &plaintext, &file, true)?;
+
+        std::fs::write(out_path, &plaintext)?;
 
         output::blank();
         output::success("Decryption complete");
@@ -427,13 +551,17 @@ fn cmd_keygen(
     let out_path = output.unwrap_or_else(default_keygen_name);
 
     if !force && out_path.exists() {
-        return Err(format!("'{}' already exists (use --force to overwrite)", out_path.display()).into());
+        return Err(format!(
+            "'{}' already exists (use --force to overwrite)",
+            out_path.display()
+        )
+        .into());
     }
 
     let key = coldpad_core::generate_key(length);
     let out_key = encode_armored(&key, base64, hex);
 
-    std::fs::write(&out_path, &out_key)?;
+    write_secret_file(&out_path, &out_key, force)?;
 
     output::group_start("coldpad keygen");
     output::info("key size:      ", format!("{} bytes", key.len()));
@@ -447,7 +575,8 @@ fn cmd_info(
     base64: bool,
     hex: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let file = file.ok_or("no ciphertext file provided. Pass a .otp file as an argument or use --file")?;
+    let file =
+        file.ok_or("no ciphertext file provided. Pass a .otp file as an argument or use --file")?;
     let raw_ciphertext = read_file(&file)?;
     let key_path = file.with_extension("otp.key");
     let raw_key = match std::fs::read(&key_path) {
@@ -469,18 +598,27 @@ fn cmd_info(
     let hash_data = read_hash_file(&hash_path)?;
 
     output::group_start("coldpad info");
-    output::info("file:          ", format!("{}  {} bytes", file.display(), ct_size));
+    output::info(
+        "file:          ",
+        format!("{}  {} bytes", file.display(), ct_size),
+    );
 
     if key.len() != ct_size {
         return Err("key size does not match ciphertext".into());
     }
-    output::info("key:           ", format!("{}  {} bytes  matches", key_path.display(), key.len()));
+    output::info(
+        "key:           ",
+        format!("{}  {} bytes  matches", key_path.display(), key.len()),
+    );
 
     match &hash_data {
         Some(expected) => {
             let plaintext = coldpad_core::decrypt(&ciphertext, &key);
-            if coldpad_core::hash::verify(&plaintext, &expected) {
-                output::info("hash:          ", format!("{}  verified", hash_path.display()));
+            if coldpad_core::hash::verify(&plaintext, expected) {
+                output::info(
+                    "hash:          ",
+                    format!("{}  verified", hash_path.display()),
+                );
             } else {
                 return Err("ciphertext has been tampered with or wrong key".into());
             }

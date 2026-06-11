@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.1-blue.svg" alt="version">
+  <img src="https://img.shields.io/badge/version-0.1.2-blue.svg" alt="version">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="license">
 </p>
 
@@ -26,6 +26,8 @@ Coldpad encrypts data with one-time pads. It generates random keys with OsRng an
 - The key must be kept **secret** and stored separately from the ciphertext.
 
 If you reuse a key, an attacker can XOR two ciphertexts together to recover information about the plaintexts. Coldpad generates a fresh key for every encryption, but you are responsible for keeping it safe.
+
+The optional SHA-256 file is an integrity check for this workflow. It is not authenticated encryption.
 
 ## Installation
 
@@ -58,6 +60,8 @@ $ echo "text" | coldpad encrypt
 $ coldpad encrypt --file document.pdf
 ```
 
+Text input and `--file` cannot be used together. Use one input source per command.
+
 The `--hash` flag writes a SHA-256 file for integrity verification:
 
 ```console
@@ -72,8 +76,12 @@ hello world
 
 $ coldpad decrypt output.otp -o plain.txt
 
+$ coldpad decrypt --file output.otp
+
 $ coldpad decrypt output.otp --base64
 ```
+
+When a hash file is present, decryption verifies it before writing `-o` output.
 
 ### Key generation
 
@@ -90,6 +98,8 @@ Show details about an encrypted file:
 
 ```console
 $ coldpad info output.otp
+
+$ coldpad info --file output.otp
 ```
 
 ## Commands
@@ -110,7 +120,7 @@ $ coldpad info output.otp
 | `--hash`        | encrypt                  | write SHA-256 hash for integrity    |
 | `--base64`      | encrypt, decrypt, keygen | encode/decode as base64             |
 | `--hex`         | encrypt, decrypt, keygen | encode/decode as hex                |
-| `--file`        | encrypt                  | encrypt a file instead of text      |
+| `--file`        | encrypt, decrypt, info   | read input from a file flag         |
 | `-l, --length`  | keygen                   | key length in bytes                 |
 
 ## License
