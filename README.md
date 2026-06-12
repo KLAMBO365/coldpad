@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.2-blue.svg" alt="version">
+  <img src="https://img.shields.io/badge/version-0.2.0-blue.svg" alt="version">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="license">
 </p>
 
@@ -41,6 +41,17 @@ $ ./target/release/coldpad --help
 ```
 
 ## Usage
+
+### Guided mode
+
+Run a guided workflow for encryption, decryption, key generation, or file info:
+
+```console
+$ coldpad secure
+```
+
+The guided mode previews planned writes and asks for confirmation before creating
+or overwriting files.
 
 ### Encrypt
 
@@ -110,6 +121,7 @@ $ coldpad info --file output.otp
 | `decrypt`  | `d`   | decrypt a `.otp` ciphertext     |
 | `keygen`   | `k`   | generate a random key of N bytes|
 | `info`     | `i`   | show info about a `.otp` file   |
+| `secure`   |       | start a guided secure workflow  |
 
 ## Flags
 

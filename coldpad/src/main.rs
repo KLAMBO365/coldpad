@@ -81,9 +81,40 @@ fn read_file(path: &Path) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     })
 }
 
-fn write_hash_file(hash_path: &Path, plaintext: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+fn write_hash_file(
+    hash_path: &Path,
+    plaintext: &[u8],
+    force: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let hash_hex = coldpad_core::hash::compute(plaintext);
-    std::fs::write(hash_path, hash_hex.as_bytes())?;
+    write_output_file(hash_path, hash_hex.as_bytes(), force)
+}
+
+fn write_output_file(
+    path: &Path,
+    contents: &[u8],
+    force: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut options = OpenOptions::new();
+    options.write(true);
+    if force {
+        options.create(true).truncate(true);
+    } else {
+        options.create_new(true);
+    }
+
+    let mut file = options.open(path).map_err(|e| {
+        if e.kind() == io::ErrorKind::AlreadyExists {
+            format!(
+                "'{}' already exists (use --force to overwrite)",
+                path.display()
+            )
+        } else {
+            format!("failed to write '{}': {e}", path.display())
+        }
+    })?;
+    file.write_all(contents)?;
+    file.flush()?;
     Ok(())
 }
 
@@ -209,6 +240,123 @@ fn default_keygen_name() -> PathBuf {
     PathBuf::from(format!("key_{nanos}.key"))
 }
 
+fn encrypt_stem(file: Option<&Path>, output: Option<&str>) -> String {
+    output.map(str::to_string).unwrap_or_else(|| {
+        file.and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| DEFAULT_STEM.to_string())
+    })
+}
+
+fn planned_encrypt_paths(stem: &str, hash: bool) -> Vec<PathBuf> {
+    let cipher_path = PathBuf::from(format!("{stem}.otp"));
+    let key_path = PathBuf::from(format!("{stem}.otp.key"));
+    let mut paths = vec![cipher_path.clone(), key_path];
+    if hash {
+        paths.push(cipher_path.with_extension("otp.sha256"));
+    }
+    paths
+}
+
+fn prompt_line(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let mut stderr = io::stderr();
+    write!(stderr, "{prompt}")?;
+    stderr.flush()?;
+
+    let mut input = String::new();
+    let bytes = io::stdin().read_line(&mut input)?;
+    if bytes == 0 {
+        return Err("input ended before the prompt was answered".into());
+    }
+    Ok(input.trim().to_string())
+}
+
+fn prompt_required(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
+    loop {
+        let value = prompt_line(prompt)?;
+        if !value.is_empty() {
+            return Ok(value);
+        }
+        output::warn("value required");
+    }
+}
+
+fn prompt_optional(prompt: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let value = prompt_line(prompt)?;
+    if value.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(value))
+    }
+}
+
+fn prompt_yes_no(prompt: &str, default: bool) -> Result<bool, Box<dyn std::error::Error>> {
+    let default_text = if default { "yes" } else { "no" };
+    loop {
+        let answer = prompt_line(&format!("{prompt} Type yes or no [{default_text}]: "))?;
+        if answer.is_empty() {
+            return Ok(default);
+        }
+        match answer.to_ascii_lowercase().as_str() {
+            "y" | "yes" => return Ok(true),
+            "n" | "no" => return Ok(false),
+            _ => output::warn("answer yes or no"),
+        }
+    }
+}
+
+fn prompt_encoding(question: &str) -> Result<(bool, bool), Box<dyn std::error::Error>> {
+    loop {
+        eprintln!("{question}");
+        eprintln!("  1) Raw bytes");
+        eprintln!("  2) Base64 text");
+        eprintln!("  3) Hex text");
+        let answer = prompt_line("Selection: ")?;
+        match answer.to_ascii_lowercase().as_str() {
+            "1" | "raw" => return Ok((false, false)),
+            "2" | "base64" | "b64" => return Ok((true, false)),
+            "3" | "hex" => return Ok((false, true)),
+            _ => output::warn("enter one of the listed numbers"),
+        }
+    }
+}
+
+fn prompt_usize(prompt: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    loop {
+        let answer = prompt_required(prompt)?;
+        match answer.parse::<usize>() {
+            Ok(value) => return Ok(value),
+            Err(_) => output::warn("enter a whole number"),
+        }
+    }
+}
+
+fn confirm_writes(paths: &[PathBuf]) -> Result<bool, Box<dyn std::error::Error>> {
+    output::group_start("files coldpad will write");
+    for path in paths {
+        let status = if path.exists() { "exists" } else { "new" };
+        output::info("  ", format!("{}  ({status})", path.display()));
+    }
+    output::group_end();
+
+    let existing = paths.iter().filter(|path| path.exists()).count();
+    if existing > 0 {
+        output::warn(format!("{existing} planned output file(s) already exist"));
+        if !prompt_yes_no("Overwrite existing files?", false)? {
+            output::warn("aborted");
+            return Ok(false);
+        }
+    }
+
+    if !prompt_yes_no("Create these files now?", false)? {
+        output::warn("aborted");
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
 #[derive(Parser)]
 #[command(
     name = "coldpad",
@@ -331,6 +479,8 @@ enum Command {
         )]
         hex: bool,
     },
+    #[command(about = "Start a guided secure workflow")]
+    Secure,
 }
 
 fn main() {
@@ -365,6 +515,7 @@ fn main() {
             base64,
             hex,
         }) => cmd_info(file.or(file_flag), base64, hex),
+        Some(Command::Secure) => cmd_secure(),
         None => cmd_root(),
     };
     if let Err(e) = result {
@@ -394,12 +545,120 @@ fn cmd_root() -> Result<(), Box<dyn std::error::Error>> {
     output::info("  decrypt, d   ", "Decrypt a .otp ciphertext file");
     output::info("  keygen,  k   ", "Generate a random key of N bytes");
     output::info("  info,    i   ", "Show info about a .otp file");
+    output::info("  secure       ", "Start a guided secure workflow");
     output::blank();
     output::info("options:   ", "");
     output::info("  --help        ", "Show help for any command");
     output::info("  --version     ", "Show version information");
     output::group_end();
     Ok(())
+}
+
+fn cmd_secure() -> Result<(), Box<dyn std::error::Error>> {
+    output::group_start("coldpad secure");
+    output::info("guided mode:   ", "answer a few prompts for one workflow");
+    output::group_end();
+
+    loop {
+        eprintln!("What do you want to do?");
+        eprintln!("  1) Encrypt text or a file");
+        eprintln!("  2) Decrypt a .otp file");
+        eprintln!("  3) Generate a key file");
+        eprintln!("  4) Show information about a .otp file");
+        eprintln!("  5) Quit");
+        let workflow = prompt_required("Selection: ")?;
+        match workflow.to_ascii_lowercase().as_str() {
+            "1" | "encrypt" | "e" => return secure_encrypt(),
+            "2" | "decrypt" | "d" => return secure_decrypt(),
+            "3" | "keygen" | "key" | "k" => return secure_keygen(),
+            "4" | "info" | "i" => return secure_info(),
+            "5" | "quit" | "q" | "exit" => return Ok(()),
+            _ => output::warn("enter one of the listed numbers"),
+        }
+    }
+}
+
+fn secure_encrypt() -> Result<(), Box<dyn std::error::Error>> {
+    let (text, file) = loop {
+        eprintln!("What do you want to encrypt?");
+        eprintln!("  1) Type text now");
+        eprintln!("  2) Encrypt a file");
+        let source = prompt_required("Selection: ")?;
+        match source.to_ascii_lowercase().as_str() {
+            "1" | "text" | "t" => {
+                let text = prompt_line("Text to encrypt: ")?;
+                break (Some(text), None);
+            }
+            "2" | "file" | "f" => {
+                let path = prompt_required("File to encrypt: ")?;
+                break (None, Some(PathBuf::from(path)));
+            }
+            _ => output::warn("enter one of the listed numbers"),
+        }
+    };
+
+    let output_prompt = if file.is_some() {
+        "Output name without extension (leave blank to use the input file name): "
+    } else {
+        "Output name without extension (leave blank for output): "
+    };
+    let output = prompt_optional(output_prompt)?;
+    let hash = prompt_yes_no("Write SHA-256 hash file?", true)?;
+    let (base64, hex) = prompt_encoding("How should coldpad store the ciphertext and key files?")?;
+    let stem = encrypt_stem(file.as_deref(), output.as_deref());
+    let paths = planned_encrypt_paths(&stem, hash);
+    let force = paths.iter().any(|path| path.exists());
+
+    if !confirm_writes(&paths)? {
+        return Ok(());
+    }
+
+    cmd_encrypt(text, output, force, hash, file, base64, hex)
+}
+
+fn secure_decrypt() -> Result<(), Box<dyn std::error::Error>> {
+    let file = PathBuf::from(prompt_required("Ciphertext file: ")?);
+    let output = if prompt_yes_no("Write plaintext to a file?", false)? {
+        Some(PathBuf::from(prompt_required("Output file: ")?))
+    } else {
+        None
+    };
+    let (base64, hex) = prompt_encoding("How are the ciphertext and key files currently stored?")?;
+
+    let allow_output_overwrite = if let Some(path) = &output {
+        let paths = vec![path.clone()];
+        let force = path.exists();
+        if !confirm_writes(&paths)? {
+            return Ok(());
+        }
+        force
+    } else {
+        true
+    };
+
+    cmd_decrypt_with_output_policy(Some(file), output, base64, hex, allow_output_overwrite)
+}
+
+fn secure_keygen() -> Result<(), Box<dyn std::error::Error>> {
+    let length = prompt_usize("Key length in bytes: ")?;
+    let out_path = prompt_optional("Output key file (leave blank to generate a file name): ")?
+        .map(PathBuf::from)
+        .unwrap_or_else(default_keygen_name);
+    let (base64, hex) = prompt_encoding("How should coldpad store the key file?")?;
+    let paths = vec![out_path.clone()];
+    let force = out_path.exists();
+
+    if !confirm_writes(&paths)? {
+        return Ok(());
+    }
+
+    cmd_keygen(length, Some(out_path), force, base64, hex)
+}
+
+fn secure_info() -> Result<(), Box<dyn std::error::Error>> {
+    let file = PathBuf::from(prompt_required("Ciphertext file: ")?);
+    let (base64, hex) = prompt_encoding("How are the ciphertext and key files currently stored?")?;
+    cmd_info(Some(file), base64, hex)
 }
 
 fn cmd_encrypt(
@@ -417,13 +676,7 @@ fn cmd_encrypt(
         read_input(text)?
     };
 
-    let stem = output.unwrap_or_else(|| {
-        file.as_ref()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| DEFAULT_STEM.to_string())
-    });
+    let stem = encrypt_stem(file.as_deref(), output.as_deref());
     if plaintext.is_empty() && file.is_none() {
         output::warn("empty input \u{2014} writing 0-byte ciphertext and key");
     }
@@ -444,13 +697,13 @@ fn cmd_encrypt(
             )
             .into());
         }
-        write_hash_file(&path, &plaintext)?;
+        write_hash_file(&path, &plaintext, force)?;
         Some(path)
     } else {
         None
     };
 
-    std::fs::write(&cipher_path, &out_cipher)?;
+    write_output_file(&cipher_path, &out_cipher, force)?;
     write_secret_file(&key_path, &out_key, force)?;
 
     output::group_start("coldpad encrypt");
@@ -471,6 +724,16 @@ fn cmd_decrypt(
     output: Option<PathBuf>,
     base64: bool,
     hex: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    cmd_decrypt_with_output_policy(file, output, base64, hex, true)
+}
+
+fn cmd_decrypt_with_output_policy(
+    file: Option<PathBuf>,
+    output: Option<PathBuf>,
+    base64: bool,
+    hex: bool,
+    allow_output_overwrite: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file =
         file.ok_or("no ciphertext file provided. Pass a .otp file as an argument or use --file")?;
@@ -513,7 +776,7 @@ fn cmd_decrypt(
 
         verify_decryption(&ciphertext, &key, &plaintext, &file, true)?;
 
-        std::fs::write(out_path, &plaintext)?;
+        write_output_file(out_path, &plaintext, allow_output_overwrite)?;
 
         output::blank();
         output::success("Decryption complete");
