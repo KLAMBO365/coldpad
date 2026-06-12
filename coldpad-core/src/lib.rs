@@ -1,6 +1,7 @@
 use rand::RngCore;
 
 pub mod hash;
+pub mod wrap;
 
 /// Generate a cryptographically secure random key of the given length.
 ///

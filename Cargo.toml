@@ -3,7 +3,7 @@ members = ["coldpad-core", "coldpad"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 
@@ -12,3 +12,6 @@ rand = "0.8"
 clap = { version = "4", features = ["derive"] }
 base64 = "0.22"
 hex = "0.4"
+argon2 = "0.5"
+aes-gcm = "0.10"
+rpassword = "7.3"

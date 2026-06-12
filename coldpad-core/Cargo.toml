@@ -8,3 +8,6 @@ license.workspace = true
 rand.workspace = true
 sha2 = "0.10"
 subtle = "2"
+hex.workspace = true
+argon2.workspace = true
+aes-gcm.workspace = true

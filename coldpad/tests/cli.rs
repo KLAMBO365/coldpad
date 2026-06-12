@@ -231,3 +231,245 @@ fn secure_keygen_writes_secret_file_with_owner_only_permissions() {
         & 0o777;
     assert_eq!(mode, 0o600);
 }
+
+#[test]
+fn wrap_key_requires_output() {
+    let dir = temp_dir("wrap-requires-output");
+
+    let encrypt = coldpad()
+        .current_dir(&dir)
+        .args(["encrypt", "secret"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad encrypt");
+    assert!(encrypt.success());
+
+    let status = coldpad()
+        .current_dir(&dir)
+        .args(["wrap-key", "output.otp.key", "--password", "pw"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad wrap-key");
+
+    assert!(!status.success());
+}
+
+#[test]
+fn wrap_key_and_unwrap_key_roundtrip() {
+    let dir = temp_dir("wrap-roundtrip");
+
+    let encrypt = coldpad()
+        .current_dir(&dir)
+        .args(["encrypt", "secret"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad encrypt");
+    assert!(encrypt.success());
+
+    let wrap = coldpad()
+        .current_dir(&dir)
+        .args([
+            "wrap-key",
+            "output.otp.key",
+            "-o",
+            "wrapped.otp.key",
+            "--password",
+            "pw",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad wrap-key");
+    assert!(wrap.success());
+    assert!(dir.join("wrapped.otp.key").exists());
+
+    let unwrap = coldpad()
+        .current_dir(&dir)
+        .args([
+            "unwrap-key",
+            "wrapped.otp.key",
+            "-o",
+            "unwrapped.otp.key",
+            "--password",
+            "pw",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad unwrap-key");
+    assert!(unwrap.success());
+
+    assert_eq!(
+        fs::read(dir.join("output.otp.key")).expect("failed to read original key"),
+        fs::read(dir.join("unwrapped.otp.key")).expect("failed to read unwrapped key")
+    );
+}
+
+#[test]
+fn decrypt_with_wrapped_key_and_password() {
+    let dir = temp_dir("decrypt-wrapped");
+
+    let encrypt = coldpad()
+        .current_dir(&dir)
+        .args(["encrypt", "secret"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad encrypt");
+    assert!(encrypt.success());
+
+    let wrap = coldpad()
+        .current_dir(&dir)
+        .args([
+            "wrap-key",
+            "output.otp.key",
+            "-o",
+            "output.otp.key",
+            "--password",
+            "pw",
+            "-f",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad wrap-key");
+    assert!(wrap.success());
+
+    let decrypt = coldpad()
+        .current_dir(&dir)
+        .args(["decrypt", "output.otp", "--password", "pw"])
+        .output()
+        .expect("failed to run coldpad decrypt");
+
+    assert!(
+        decrypt.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&decrypt.stderr)
+    );
+    assert_eq!(decrypt.stdout, b"secret");
+}
+
+#[test]
+fn decrypt_with_wrapped_key_wrong_password_fails() {
+    let dir = temp_dir("decrypt-wrapped-wrong");
+
+    let encrypt = coldpad()
+        .current_dir(&dir)
+        .args(["encrypt", "secret"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad encrypt");
+    assert!(encrypt.success());
+
+    let wrap = coldpad()
+        .current_dir(&dir)
+        .args([
+            "wrap-key",
+            "output.otp.key",
+            "-o",
+            "output.otp.key",
+            "--password",
+            "pw",
+            "-f",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad wrap-key");
+    assert!(wrap.success());
+
+    let decrypt = coldpad()
+        .current_dir(&dir)
+        .args(["decrypt", "output.otp", "--password", "wrong"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad decrypt");
+
+    assert!(!decrypt.success());
+}
+
+#[test]
+fn info_with_wrapped_key_and_password() {
+    let dir = temp_dir("info-wrapped");
+
+    let encrypt = coldpad()
+        .current_dir(&dir)
+        .args(["encrypt", "secret"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad encrypt");
+    assert!(encrypt.success());
+
+    let wrap = coldpad()
+        .current_dir(&dir)
+        .args([
+            "wrap-key",
+            "output.otp.key",
+            "-o",
+            "output.otp.key",
+            "--password",
+            "pw",
+            "-f",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad wrap-key");
+    assert!(wrap.success());
+
+    let info = coldpad()
+        .current_dir(&dir)
+        .args(["info", "output.otp", "--password", "pw"])
+        .output()
+        .expect("failed to run coldpad info");
+
+    assert!(
+        info.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&info.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&info.stderr);
+    assert!(stderr.contains("key matches"));
+}
+
+#[cfg(unix)]
+#[test]
+fn wrapped_key_file_has_owner_only_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = temp_dir("wrapped-key-permissions");
+
+    let encrypt = coldpad()
+        .current_dir(&dir)
+        .args(["encrypt", "secret"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad encrypt");
+    assert!(encrypt.success());
+
+    let wrapped_path = dir.join("wrapped.otp.key");
+    let wrap = coldpad()
+        .current_dir(&dir)
+        .args(["wrap-key", "output.otp.key", "-o"])
+        .arg(&wrapped_path)
+        .args(["--password", "pw"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("failed to run coldpad wrap-key");
+    assert!(wrap.success());
+
+    let mode = fs::metadata(&wrapped_path)
+        .expect("failed to stat wrapped key file")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600);
+}
