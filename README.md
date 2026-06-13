@@ -42,7 +42,7 @@ $ ./target/release/coldpad --help
 
 ## Usage
 
-### Guided mode
+### Recommended: guided mode
 
 Run a guided workflow for encryption, decryption, key generation, or file info:
 
@@ -53,99 +53,109 @@ $ coldpad secure
 The guided mode previews planned writes and asks for confirmation before creating
 or overwriting files.
 
-### Encrypt
+### Scriptable recipes
 
-Encrypt text, pipe input, or a file:
+Use direct commands when you want repeatable shell history, scripts, or CI jobs.
+
+Encrypt text:
 
 ```console
 $ coldpad encrypt "hello world"
   Wrote output.otp
     Wrote output.otp.key
+```
 
+Encrypt with a custom output stem:
+
+```console
 $ coldpad encrypt -o secret "hello world"
+```
 
-$ coldpad encrypt --base64 "hello world"
+Encrypt a file:
 
-$ coldpad encrypt --wrap-key --hash "important data"
-
-$ echo "text" | coldpad encrypt
-
+```console
 $ coldpad encrypt --file document.pdf
 ```
 
-Text input and `--file` cannot be used together. Use one input source per command.
+Encrypt piped input:
 
-The `--hash` flag writes a SHA-256 file for integrity verification:
+```console
+$ echo "text" | coldpad encrypt
+```
+
+Write a SHA-256 integrity file:
 
 ```console
 $ coldpad encrypt --hash "important data"
 ```
 
-The `--wrap-key` flag password-protects the generated `.otp.key` file instead
-of writing the raw one-time pad key to disk.
+Password-protect the generated key:
 
-### Decrypt
+```console
+$ coldpad encrypt --wrap-key --hash "important data"
+```
+
+Use text encoding for files that need it:
+
+```console
+$ coldpad encrypt --encoding base64 "hello world"
+$ coldpad decrypt output.otp --encoding base64
+```
+
+Decrypt:
 
 ```console
 $ coldpad decrypt output.otp
 hello world
 
 $ coldpad decrypt output.otp -o plain.txt
-
-$ coldpad decrypt --file output.otp
-
-$ coldpad decrypt output.otp --base64
 ```
 
-When a hash file is present, decryption verifies it before writing `-o` output.
-For wrapped keys, coldpad prompts for the password in a terminal; use
-`--password-file` for non-interactive runs.
-
-### Key generation
+Generate and manage keys:
 
 ```console
-$ coldpad keygen -l 32
+$ coldpad key generate --length 32
   Wrote key_1734567890.key
 
-$ coldpad keygen -l 32 -o mykey.key --hex
-```
+$ coldpad key generate --length 32 --output mykey.key --encoding hex
 
-### Info
+$ coldpad key wrap mykey.key --output wrapped.key
+
+$ coldpad key unwrap wrapped.key --output mykey.key
+```
 
 Show details about an encrypted file:
 
 ```console
 $ coldpad info output.otp
-
-$ coldpad info --file output.otp
 ```
+
+### Command notes
+
+Text input and `--file` cannot be used together. Use one input source per command.
+
+The `--wrap-key` flag password-protects the generated `.otp.key` file instead
+of writing the raw one-time pad key to disk.
+
+When a hash file is present, decryption verifies it before writing `-o` output.
+For wrapped keys, coldpad prompts for the password in a terminal; use
+`--password-file` for non-interactive runs.
+
+Use `--encoding raw`, `--encoding base64`, or `--encoding hex` when ciphertext
+and raw key files need a specific representation. Wrapped key files are already
+password-protected and do not use the raw key encoding.
 
 ## Commands
 
-| command      | alias | description                         |
-|--------------|-------|-------------------------------------|
-| `encrypt`    | `e`   | encrypt text, pipe, or file         |
-| `decrypt`    | `d`   | decrypt a `.otp` ciphertext         |
-| `keygen`     | `k`   | generate a random key of N bytes    |
-| `wrap-key`   |       | password-protect an existing key    |
-| `unwrap-key` |       | unwrap a password-protected key     |
-| `info`       | `i`   | show info about a `.otp` file       |
-| `secure`     |       | start a guided secure workflow      |
+| command    | alias | description                         |
+|------------|-------|-------------------------------------|
+| `secure`   |       | start a guided secure workflow      |
+| `encrypt`  | `e`   | encrypt text, pipe, or file         |
+| `decrypt`  | `d`   | decrypt a `.otp` ciphertext         |
+| `info`     | `i`   | show info about a `.otp` file       |
+| `key`      |       | generate, wrap, or unwrap key files |
 
-## Flags
-
-| flag            | command                  | description                         |
-|-----------------|--------------------------|-------------------------------------|
-| `-o, --output`  | encrypt, decrypt         | custom output path or stem          |
-| `-f, --force`   | encrypt, keygen, wrap-key, unwrap-key | overwrite existing output files |
-| `--hash`        | encrypt                  | write SHA-256 hash for integrity    |
-| `--base64`      | encrypt, decrypt, keygen, wrap-key, unwrap-key | encode/decode as base64 |
-| `--hex`         | encrypt, decrypt, keygen, wrap-key, unwrap-key | encode/decode as hex |
-| `--file`        | encrypt, decrypt, info   | read input from a file flag         |
-| `-l, --length`  | keygen                   | key length in bytes                 |
-| `--wrap-key`    | encrypt                  | password-protect the generated key  |
-| `--password`    | encrypt, decrypt, info, wrap-key, unwrap-key | key password       |
-| `--password-file` | encrypt, decrypt, info, wrap-key, unwrap-key | read key password from a file |
+Run `coldpad <command> --help` for command-specific options.
 
 ## License
 
