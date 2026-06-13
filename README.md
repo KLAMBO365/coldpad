@@ -66,6 +66,8 @@ $ coldpad encrypt -o secret "hello world"
 
 $ coldpad encrypt --base64 "hello world"
 
+$ coldpad encrypt --wrap-key --hash "important data"
+
 $ echo "text" | coldpad encrypt
 
 $ coldpad encrypt --file document.pdf
@@ -78,6 +80,9 @@ The `--hash` flag writes a SHA-256 file for integrity verification:
 ```console
 $ coldpad encrypt --hash "important data"
 ```
+
+The `--wrap-key` flag password-protects the generated `.otp.key` file instead
+of writing the raw one-time pad key to disk.
 
 ### Decrypt
 
@@ -93,6 +98,8 @@ $ coldpad decrypt output.otp --base64
 ```
 
 When a hash file is present, decryption verifies it before writing `-o` output.
+For wrapped keys, coldpad prompts for the password in a terminal; use
+`--password-file` for non-interactive runs.
 
 ### Key generation
 
@@ -115,25 +122,30 @@ $ coldpad info --file output.otp
 
 ## Commands
 
-| command    | alias | description                     |
-|------------|-------|---------------------------------|
-| `encrypt`  | `e`   | encrypt text, pipe, or file     |
-| `decrypt`  | `d`   | decrypt a `.otp` ciphertext     |
-| `keygen`   | `k`   | generate a random key of N bytes|
-| `info`     | `i`   | show info about a `.otp` file   |
-| `secure`   |       | start a guided secure workflow  |
+| command      | alias | description                         |
+|--------------|-------|-------------------------------------|
+| `encrypt`    | `e`   | encrypt text, pipe, or file         |
+| `decrypt`    | `d`   | decrypt a `.otp` ciphertext         |
+| `keygen`     | `k`   | generate a random key of N bytes    |
+| `wrap-key`   |       | password-protect an existing key    |
+| `unwrap-key` |       | unwrap a password-protected key     |
+| `info`       | `i`   | show info about a `.otp` file       |
+| `secure`     |       | start a guided secure workflow      |
 
 ## Flags
 
 | flag            | command                  | description                         |
 |-----------------|--------------------------|-------------------------------------|
 | `-o, --output`  | encrypt, decrypt         | custom output path or stem          |
-| `-f, --force`   | encrypt, keygen          | overwrite existing output files     |
+| `-f, --force`   | encrypt, keygen, wrap-key, unwrap-key | overwrite existing output files |
 | `--hash`        | encrypt                  | write SHA-256 hash for integrity    |
-| `--base64`      | encrypt, decrypt, keygen | encode/decode as base64             |
-| `--hex`         | encrypt, decrypt, keygen | encode/decode as hex                |
+| `--base64`      | encrypt, decrypt, keygen, wrap-key, unwrap-key | encode/decode as base64 |
+| `--hex`         | encrypt, decrypt, keygen, wrap-key, unwrap-key | encode/decode as hex |
 | `--file`        | encrypt, decrypt, info   | read input from a file flag         |
 | `-l, --length`  | keygen                   | key length in bytes                 |
+| `--wrap-key`    | encrypt                  | password-protect the generated key  |
+| `--password`    | encrypt, decrypt, info, wrap-key, unwrap-key | key password       |
+| `--password-file` | encrypt, decrypt, info, wrap-key, unwrap-key | read key password from a file |
 
 ## License
 

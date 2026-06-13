@@ -254,8 +254,10 @@ fn resolve_password(
     }
 }
 
-fn unwrap_key_if_needed(
+fn decode_key_file(
     raw_key: Vec<u8>,
+    base64: bool,
+    hex: bool,
     password: Option<String>,
     password_file: Option<PathBuf>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -264,7 +266,7 @@ fn unwrap_key_if_needed(
         coldpad_core::wrap::unwrap_key(&raw_key, &password)
             .map_err(|e| format!("failed to unwrap key: {e}").into())
     } else {
-        Ok(raw_key)
+        decode_if_armored(raw_key, base64, hex, "key")
     }
 }
 
@@ -368,6 +370,15 @@ fn prompt_usize(prompt: &str) -> Result<usize, Box<dyn std::error::Error>> {
     }
 }
 
+fn prompt_confirmed_password() -> Result<String, Box<dyn std::error::Error>> {
+    let password = rpassword::prompt_password("Password for wrapped key: ")?;
+    let confirm = rpassword::prompt_password("Confirm password: ")?;
+    if password != confirm {
+        return Err("passwords do not match".into());
+    }
+    Ok(password)
+}
+
 fn confirm_writes(paths: &[PathBuf]) -> Result<bool, Box<dyn std::error::Error>> {
     output::group_start("files coldpad will write");
     for path in paths {
@@ -430,16 +441,31 @@ enum Command {
         file: Option<PathBuf>,
         #[arg(
             long,
-            help = "Write ciphertext and key as base64",
+            help = "Write ciphertext and raw key as base64",
             conflicts_with = "hex"
         )]
         base64: bool,
         #[arg(
             long,
-            help = "Write ciphertext and key as hex",
+            help = "Write ciphertext and raw key as hex",
             conflicts_with = "base64"
         )]
         hex: bool,
+        #[arg(long, help = "Password-protect the generated key file")]
+        wrap_key: bool,
+        #[arg(
+            long,
+            help = "Password for the generated wrapped key",
+            requires = "wrap_key"
+        )]
+        password: Option<String>,
+        #[arg(
+            long,
+            help = "Read generated key password from a file",
+            conflicts_with = "password",
+            requires = "wrap_key"
+        )]
+        password_file: Option<PathBuf>,
     },
     #[command(alias = "d", about = "Decrypt a coldpad file")]
     Decrypt {
@@ -580,7 +606,21 @@ fn main() {
             file,
             base64,
             hex,
-        }) => cmd_encrypt(text, output, force, hash, file, base64, hex),
+            wrap_key,
+            password,
+            password_file,
+        }) => cmd_encrypt(EncryptOptions {
+            text,
+            output,
+            force,
+            hash,
+            file,
+            base64,
+            hex,
+            wrap_key,
+            password,
+            password_file,
+        }),
         Some(Command::Decrypt {
             file,
             output,
@@ -739,7 +779,12 @@ fn secure_encrypt() -> Result<(), Box<dyn std::error::Error>> {
     };
     let output = prompt_optional(output_prompt)?;
     let hash = prompt_yes_no("Write SHA-256 hash file?", true)?;
-    let (base64, hex) = prompt_encoding("How should coldpad store the ciphertext and key files?")?;
+    let wrap_key = prompt_yes_no("Password-protect the key file?", true)?;
+    let (base64, hex) = if wrap_key {
+        prompt_encoding("How should coldpad store the ciphertext file?")?
+    } else {
+        prompt_encoding("How should coldpad store the ciphertext and key files?")?
+    };
     let stem = encrypt_stem(file.as_deref(), output.as_deref());
     let paths = planned_encrypt_paths(&stem, hash);
     let force = paths.iter().any(|path| path.exists());
@@ -748,7 +793,24 @@ fn secure_encrypt() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    cmd_encrypt(text, output, force, hash, file, base64, hex)
+    let password = if wrap_key {
+        Some(prompt_confirmed_password()?)
+    } else {
+        None
+    };
+
+    cmd_encrypt(EncryptOptions {
+        text,
+        output,
+        force,
+        hash,
+        file,
+        base64,
+        hex,
+        wrap_key,
+        password,
+        password_file: None,
+    })
 }
 
 fn secure_decrypt() -> Result<(), Box<dyn std::error::Error>> {
@@ -826,11 +888,7 @@ fn secure_wrap_key() -> Result<(), Box<dyn std::error::Error>> {
     let key_file = PathBuf::from(prompt_required("Key file to wrap: ")?);
     let output = PathBuf::from(prompt_required("Output wrapped key file: ")?);
     let (base64, hex) = prompt_encoding("How is the input key file currently stored?")?;
-    let password = rpassword::prompt_password("Password for wrapped key: ")?;
-    let confirm = rpassword::prompt_password("Confirm password: ")?;
-    if password != confirm {
-        return Err("passwords do not match".into());
-    }
+    let password = prompt_confirmed_password()?;
     let paths = vec![output.clone()];
     let force = output.exists();
     if !confirm_writes(&paths)? {
@@ -868,7 +926,7 @@ fn secure_unwrap_key() -> Result<(), Box<dyn std::error::Error>> {
     )
 }
 
-fn cmd_encrypt(
+struct EncryptOptions {
     text: Option<String>,
     output: Option<String>,
     force: bool,
@@ -876,7 +934,25 @@ fn cmd_encrypt(
     file: Option<PathBuf>,
     base64: bool,
     hex: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+    wrap_key: bool,
+    password: Option<String>,
+    password_file: Option<PathBuf>,
+}
+
+fn cmd_encrypt(options: EncryptOptions) -> Result<(), Box<dyn std::error::Error>> {
+    let EncryptOptions {
+        text,
+        output,
+        force,
+        hash,
+        file,
+        base64,
+        hex,
+        wrap_key,
+        password,
+        password_file,
+    } = options;
+
     let plaintext = if let Some(path) = &file {
         std::fs::read(path)?
     } else {
@@ -893,7 +969,12 @@ fn cmd_encrypt(
     let ciphertext = coldpad_core::encrypt(&plaintext, &key);
 
     let out_cipher = encode_armored(&ciphertext, base64, hex);
-    let out_key = encode_armored(&key, base64, hex);
+    let out_key = if wrap_key {
+        let password = resolve_password(password, password_file, "Password for wrapped key: ")?;
+        coldpad_core::wrap::wrap_key(&key, &password)
+    } else {
+        encode_armored(&key, base64, hex)
+    };
 
     let hash_path = if hash {
         let path = cipher_path.with_extension("otp.sha256");
@@ -915,6 +996,9 @@ fn cmd_encrypt(
 
     output::group_start("coldpad encrypt");
     output::info("key size:      ", format!("{} bytes", key.len()));
+    if wrap_key {
+        output::info("key format:    ", "password-protected");
+    }
     output::info("ciphertext:    ", format!("{} bytes", ciphertext.len()));
     output::blank();
     output::success(format!("Wrote {}", cipher_path.display()));
@@ -968,8 +1052,7 @@ fn cmd_decrypt_with_output_policy(
     };
 
     let ciphertext = decode_if_armored(raw_ciphertext, base64, hex, "ciphertext")?;
-    let key = unwrap_key_if_needed(raw_key, password, password_file)?;
-    let key = decode_if_armored(key, base64, hex, "key")?;
+    let key = decode_key_file(raw_key, base64, hex, password, password_file)?;
 
     if key.len() != ciphertext.len() {
         return Err(format!(
@@ -1124,8 +1207,7 @@ fn cmd_info(
     };
 
     let ciphertext = decode_if_armored(raw_ciphertext, base64, hex, "ciphertext")?;
-    let key = unwrap_key_if_needed(raw_key, password, password_file)?;
-    let key = decode_if_armored(key, base64, hex, "key")?;
+    let key = decode_key_file(raw_key, base64, hex, password, password_file)?;
 
     let ct_size = ciphertext.len();
     let hash_path = file.with_extension("otp.sha256");
