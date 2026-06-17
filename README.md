@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.3.0-blue.svg" alt="version">
+  <img src="assets/logo.png" alt="coldpad Logo" width="180">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.4.0-blue.svg" alt="version">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="license">
 </p>
 
