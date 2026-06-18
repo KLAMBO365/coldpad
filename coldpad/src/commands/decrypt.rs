@@ -6,7 +6,7 @@ use crate::encoding::decode_if_armored;
 use crate::io::read_file;
 use crate::key::{decode_key_file, verify_decryption};
 use crate::output;
-use crate::prompt::prompt_required_if_terminal;
+use crate::prompt::prompt_path_required_if_terminal;
 
 pub fn run(
     file: Option<PathBuf>,
@@ -28,10 +28,10 @@ pub fn run_with_policy(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = match file {
         Some(file) => file,
-        None => PathBuf::from(prompt_required_if_terminal(
+        None => prompt_path_required_if_terminal(
             "Ciphertext file: ",
             "no ciphertext file provided. Pass a .otp file as an argument",
-        )?),
+        )?,
     };
     let raw_ciphertext = read_file(&file).map_err(|e| {
         let msg = e.to_string();
@@ -66,31 +66,22 @@ pub fn run_with_policy(
 
     let plaintext = coldpad_core::decrypt(&ciphertext, &key);
 
+    output::group_start("coldpad decrypt");
+    output::info("decrypted:     ", format!("{} bytes", plaintext.len()));
+
+    verify_decryption(&ciphertext, &key, &plaintext, &file, true)?;
+
     if let Some(out_path) = &output {
-        output::group_start("coldpad decrypt");
-        output::info("decrypted:     ", format!("{} bytes", plaintext.len()));
-
-        verify_decryption(&ciphertext, &key, &plaintext, &file, true)?;
-
         crate::io::write_output_file(out_path, &plaintext, allow_output_overwrite)?;
+    } else if io::stdout().is_terminal() && plaintext.contains(&0) {
+        output::warn("output looks like binary data \u{2014} use -o to write to a file");
+    }
 
-        output::blank();
-        output::success("Decryption complete");
-        output::group_end();
-    } else {
-        output::group_start("coldpad decrypt");
-        output::info("decrypted:     ", format!("{} bytes", plaintext.len()));
+    output::blank();
+    output::success("Decryption complete");
+    output::group_end();
 
-        verify_decryption(&ciphertext, &key, &plaintext, &file, true)?;
-
-        if io::stdout().is_terminal() && plaintext.contains(&0) {
-            output::warn("output looks like binary data \u{2014} use -o to write to a file");
-        }
-
-        output::blank();
-        output::success("Decryption complete");
-        output::group_end();
-
+    if output.is_none() {
         io::stdout().write_all(&plaintext)?;
         if io::stdout().is_terminal() && !plaintext.ends_with(b"\n") {
             io::stdout().write_all(b"\n")?;

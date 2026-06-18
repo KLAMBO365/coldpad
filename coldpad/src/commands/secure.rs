@@ -1,11 +1,12 @@
-use std::path::PathBuf;
-
 use crate::cli::EncryptOptions;
-use crate::key::{default_keygen_name, encrypt_stem, planned_encrypt_paths};
+use crate::key::{
+    default_keygen_name, encrypt_stem, planned_encrypt_paths, prompt_password_for_wrapped_key,
+};
 use crate::output;
 use crate::prompt::{
-    confirm_writes, prompt_confirmed_password, prompt_encoding, prompt_line, prompt_optional,
-    prompt_required, prompt_usize, prompt_yes_no,
+    confirm_single_write, confirm_writes, prompt_confirmed_password, prompt_encoding, prompt_line,
+    prompt_optional, prompt_optional_path, prompt_path, prompt_required, prompt_usize,
+    prompt_yes_no,
 };
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -48,8 +49,7 @@ fn secure_encrypt() -> Result<(), Box<dyn std::error::Error>> {
                 break (Some(text), None);
             }
             "2" | "file" | "f" => {
-                let path = prompt_required("File to encrypt: ")?;
-                break (None, Some(PathBuf::from(path)));
+                break (None, Some(prompt_path("File to encrypt: ")?));
             }
             _ => output::warn("enter one of the listed numbers"),
         }
@@ -96,27 +96,18 @@ fn secure_encrypt() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn secure_decrypt() -> Result<(), Box<dyn std::error::Error>> {
-    let file = PathBuf::from(prompt_required("Ciphertext file: ")?);
-    let key_path = file.with_extension("otp.key");
-    let (password, password_file) = if key_path.exists()
-        && std::fs::read(&key_path).is_ok_and(|k| coldpad_core::wrap::is_wrapped_key(&k))
-    {
-        let pw = rpassword::prompt_password("Key password: ")?;
-        (Some(pw), None)
-    } else {
-        (None, None)
-    };
+    let file = prompt_path("Ciphertext file: ")?;
+    let password = prompt_password_for_wrapped_key(&file)?;
     let output = if prompt_yes_no("Write plaintext to a file?", false)? {
-        Some(PathBuf::from(prompt_required("Output file: ")?))
+        Some(prompt_path("Output file: ")?)
     } else {
         None
     };
     let encoding = prompt_encoding("How are the ciphertext and key files currently stored?")?;
 
     let allow_output_overwrite = if let Some(path) = &output {
-        let paths = vec![path.clone()];
         let force = path.exists();
-        if !confirm_writes(&paths)? {
+        if !confirm_single_write(path)? {
             return Ok(());
         }
         force
@@ -130,20 +121,18 @@ fn secure_decrypt() -> Result<(), Box<dyn std::error::Error>> {
         encoding,
         allow_output_overwrite,
         password,
-        password_file,
+        None,
     )
 }
 
 fn secure_keygen() -> Result<(), Box<dyn std::error::Error>> {
     let length = prompt_usize("Key length in bytes: ")?;
-    let out_path = prompt_optional("Output key file (leave blank to generate a file name): ")?
-        .map(PathBuf::from)
+    let out_path = prompt_optional_path("Output key file (leave blank to generate a file name): ")?
         .unwrap_or_else(default_keygen_name);
     let encoding = prompt_encoding("How should coldpad store the key file?")?;
-    let paths = vec![out_path.clone()];
     let force = out_path.exists();
 
-    if !confirm_writes(&paths)? {
+    if !confirm_single_write(&out_path)? {
         return Ok(());
     }
 
@@ -151,28 +140,19 @@ fn secure_keygen() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn secure_info() -> Result<(), Box<dyn std::error::Error>> {
-    let file = PathBuf::from(prompt_required("Ciphertext file: ")?);
-    let key_path = file.with_extension("otp.key");
-    let (password, password_file) = if key_path.exists()
-        && std::fs::read(&key_path).is_ok_and(|k| coldpad_core::wrap::is_wrapped_key(&k))
-    {
-        let pw = rpassword::prompt_password("Key password: ")?;
-        (Some(pw), None)
-    } else {
-        (None, None)
-    };
+    let file = prompt_path("Ciphertext file: ")?;
+    let password = prompt_password_for_wrapped_key(&file)?;
     let encoding = prompt_encoding("How are the ciphertext and key files currently stored?")?;
-    super::info::run(Some(file), encoding, password, password_file)
+    super::info::run(Some(file), encoding, password, None)
 }
 
 fn secure_wrap_key() -> Result<(), Box<dyn std::error::Error>> {
-    let key_file = PathBuf::from(prompt_required("Key file to wrap: ")?);
-    let output = PathBuf::from(prompt_required("Output wrapped key file: ")?);
+    let key_file = prompt_path("Key file to wrap: ")?;
+    let output = prompt_path("Output wrapped key file: ")?;
     let encoding = prompt_encoding("How is the input key file currently stored?")?;
     let password = prompt_confirmed_password()?;
-    let paths = vec![output.clone()];
     let force = output.exists();
-    if !confirm_writes(&paths)? {
+    if !confirm_single_write(&output)? {
         return Ok(());
     }
     super::key::run_wrap(
@@ -186,13 +166,12 @@ fn secure_wrap_key() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn secure_unwrap_key() -> Result<(), Box<dyn std::error::Error>> {
-    let key_file = PathBuf::from(prompt_required("Wrapped key file: ")?);
-    let output = PathBuf::from(prompt_required("Output unwrapped key file: ")?);
+    let key_file = prompt_path("Wrapped key file: ")?;
+    let output = prompt_path("Output unwrapped key file: ")?;
     let encoding = prompt_encoding("How should the unwrapped key file be stored?")?;
     let password = rpassword::prompt_password("Password for wrapped key: ")?;
-    let paths = vec![output.clone()];
     let force = output.exists();
-    if !confirm_writes(&paths)? {
+    if !confirm_single_write(&output)? {
         return Ok(());
     }
     super::key::run_unwrap(

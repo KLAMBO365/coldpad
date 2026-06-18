@@ -1,11 +1,38 @@
 use std::path::PathBuf;
 
-use crate::cli::Encoding;
+use crate::cli::{Encoding, KeyCommand};
 use crate::encoding::{decode_if_armored, encode_armored};
 use crate::io::{read_file, write_secret_file};
 use crate::key::{default_keygen_name, resolve_password};
 use crate::output;
-use crate::prompt::prompt_required_if_terminal;
+use crate::prompt::{prompt_path_required_if_terminal, prompt_required_if_terminal};
+
+pub fn run(command: KeyCommand) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        KeyCommand::Generate {
+            length,
+            output,
+            force,
+            encoding,
+        } => run_generate(length, output, force, encoding),
+        KeyCommand::Wrap {
+            key_file,
+            output,
+            force,
+            password,
+            password_file,
+            encoding,
+        } => run_wrap(key_file, output, force, password, password_file, encoding),
+        KeyCommand::Unwrap {
+            key_file,
+            output,
+            force,
+            password,
+            password_file,
+            encoding,
+        } => run_unwrap(key_file, output, force, password, password_file, encoding),
+    }
+}
 
 pub fn run_generate(
     length: Option<usize>,
@@ -23,14 +50,6 @@ pub fn run_generate(
         .map_err(|_| "key length must be a whole number")?,
     };
     let out_path = output.unwrap_or_else(default_keygen_name);
-
-    if !force && out_path.exists() {
-        return Err(format!(
-            "'{}' already exists (use --force to overwrite)",
-            out_path.display()
-        )
-        .into());
-    }
 
     let key = coldpad_core::generate_key(length);
     let out_key = encode_armored(&key, encoding);
@@ -54,17 +73,14 @@ pub fn run_wrap(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let key_file = match key_file {
         Some(path) => path,
-        None => PathBuf::from(prompt_required_if_terminal(
-            "Key file to wrap: ",
-            "no key file provided",
-        )?),
+        None => prompt_path_required_if_terminal("Key file to wrap: ", "no key file provided")?,
     };
     let output = match output {
         Some(path) => path,
-        None => PathBuf::from(prompt_required_if_terminal(
+        None => prompt_path_required_if_terminal(
             "Output wrapped key file: ",
             "output path is required (use -o)",
-        )?),
+        )?,
     };
     let password = resolve_password(password, password_file, "Password for wrapped key: ")?;
 
@@ -91,17 +107,14 @@ pub fn run_unwrap(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let key_file = match key_file {
         Some(path) => path,
-        None => PathBuf::from(prompt_required_if_terminal(
-            "Wrapped key file: ",
-            "no key file provided",
-        )?),
+        None => prompt_path_required_if_terminal("Wrapped key file: ", "no key file provided")?,
     };
     let output = match output {
         Some(path) => path,
-        None => PathBuf::from(prompt_required_if_terminal(
+        None => prompt_path_required_if_terminal(
             "Output unwrapped key file: ",
             "output path is required (use -o)",
-        )?),
+        )?,
     };
     let password = resolve_password(password, password_file, "Password for wrapped key: ")?;
 

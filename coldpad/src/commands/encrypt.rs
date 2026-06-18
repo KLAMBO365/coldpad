@@ -1,12 +1,10 @@
-use std::io::{self, IsTerminal, Read};
 use crate::cli::EncryptOptions;
 use crate::encoding::encode_armored;
-use crate::io::{
-    prepare_output_paths, write_hash_file, write_output_file, write_secret_file,
-};
+use crate::io::{prepare_output_paths, write_hash_file, write_output_file, write_secret_file};
 use crate::key::resolve_password;
 use crate::output;
 use crate::prompt::prompt_line;
+use std::io::{self, IsTerminal, Read};
 
 pub fn run(options: EncryptOptions) -> Result<(), Box<dyn std::error::Error>> {
     let EncryptOptions {
@@ -46,13 +44,6 @@ pub fn run(options: EncryptOptions) -> Result<(), Box<dyn std::error::Error>> {
 
     let hash_path = if hash {
         let path = cipher_path.with_extension("otp.sha256");
-        if !force && path.exists() {
-            return Err(format!(
-                "'{}' already exists (use --force to overwrite)",
-                path.display()
-            )
-            .into());
-        }
         write_hash_file(&path, &plaintext, force)?;
         Some(path)
     } else {

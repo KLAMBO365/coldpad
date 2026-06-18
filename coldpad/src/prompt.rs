@@ -1,5 +1,5 @@
 use std::io::{self, IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::cli::Encoding;
 use crate::output;
@@ -27,6 +27,14 @@ pub fn prompt_required(prompt: &str) -> Result<String, Box<dyn std::error::Error
     }
 }
 
+pub fn prompt_path(prompt: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    Ok(PathBuf::from(prompt_required(prompt)?))
+}
+
+pub fn prompt_optional_path(prompt: &str) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    Ok(prompt_optional(prompt)?.map(PathBuf::from))
+}
+
 pub fn prompt_optional(prompt: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let value = prompt_line(prompt)?;
     if value.is_empty() {
@@ -45,6 +53,13 @@ pub fn prompt_required_if_terminal(
     } else {
         Err(error.to_string().into())
     }
+}
+
+pub fn prompt_path_required_if_terminal(
+    prompt: &str,
+    error: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    Ok(PathBuf::from(prompt_required_if_terminal(prompt, error)?))
 }
 
 pub fn prompt_yes_no(prompt: &str, default: bool) -> Result<bool, Box<dyn std::error::Error>> {
@@ -120,4 +135,8 @@ pub fn confirm_writes(paths: &[PathBuf]) -> Result<bool, Box<dyn std::error::Err
     }
 
     Ok(true)
+}
+
+pub fn confirm_single_write(path: &Path) -> Result<bool, Box<dyn std::error::Error>> {
+    confirm_writes(&[path.to_path_buf()])
 }

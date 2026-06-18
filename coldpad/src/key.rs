@@ -45,6 +45,19 @@ pub fn decode_key_file(
     }
 }
 
+pub fn prompt_password_for_wrapped_key(
+    ciphertext_file: &Path,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let key_path = ciphertext_file.with_extension("otp.key");
+    if key_path.exists()
+        && std::fs::read(&key_path).is_ok_and(|key| coldpad_core::wrap::is_wrapped_key(&key))
+    {
+        Ok(Some(rpassword::prompt_password("Key password: ")?))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn default_keygen_name() -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

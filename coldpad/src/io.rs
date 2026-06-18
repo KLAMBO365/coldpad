@@ -1,6 +1,6 @@
+use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::{fs::OpenOptions, io};
 
@@ -38,10 +38,11 @@ pub fn prepare_output_paths(
     Ok((cipher_path, key_path))
 }
 
-pub fn write_output_file(
+fn write_file(
     path: &Path,
     contents: &[u8],
     force: bool,
+    secret: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut options = OpenOptions::new();
     options.write(true);
@@ -49,6 +50,11 @@ pub fn write_output_file(
         options.create(true).truncate(true);
     } else {
         options.create_new(true);
+    }
+
+    #[cfg(unix)]
+    if secret {
+        options.mode(0o600);
     }
 
     let mut file = options.open(path).map_err(|e| {
@@ -63,7 +69,21 @@ pub fn write_output_file(
     })?;
     file.write_all(contents)?;
     file.flush()?;
+
+    #[cfg(unix)]
+    if secret {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+
     Ok(())
+}
+
+pub fn write_output_file(
+    path: &Path,
+    contents: &[u8],
+    force: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    write_file(path, contents, force, false)
 }
 
 pub fn write_secret_file(
@@ -71,35 +91,7 @@ pub fn write_secret_file(
     contents: &[u8],
     force: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = OpenOptions::new();
-    options.write(true);
-    if force {
-        options.create(true).truncate(true);
-    } else {
-        options.create_new(true);
-    }
-
-    #[cfg(unix)]
-    options.mode(0o600);
-
-    let mut file = options.open(path).map_err(|e| {
-        if e.kind() == io::ErrorKind::AlreadyExists {
-            format!(
-                "'{}' already exists (use --force to overwrite)",
-                path.display()
-            )
-        } else {
-            format!("failed to write '{}': {e}", path.display())
-        }
-    })?;
-
-    file.write_all(contents)?;
-    file.flush()?;
-
-    #[cfg(unix)]
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-
-    Ok(())
+    write_file(path, contents, force, true)
 }
 
 pub fn write_hash_file(

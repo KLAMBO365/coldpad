@@ -203,57 +203,29 @@ pub fn reject_removed_cli_forms() {
     }
 
     if args.iter().any(|arg| arg == "--base64" || arg == "--hex") {
-        eprintln!(
-            "{}",
-            color(
-                ansi::RED,
-                "error: --base64 and --hex were removed; use --encoding base64 or --encoding hex"
-            )
+        exit_removed(
+            "error: --base64 and --hex were removed; use --encoding base64 or --encoding hex",
         );
-        process::exit(1);
     }
 
     match args[0].as_str() {
         "keygen" | "k" => {
-            eprintln!(
-                "{}",
-                color(
-                    ansi::RED,
-                    "error: coldpad keygen was removed; use coldpad key generate"
-                )
-            );
-            process::exit(1);
+            exit_removed("error: coldpad keygen was removed; use coldpad key generate");
         }
         "wrap-key" => {
-            eprintln!(
-                "{}",
-                color(
-                    ansi::RED,
-                    "error: coldpad wrap-key was removed; use coldpad key wrap"
-                )
-            );
-            process::exit(1);
+            exit_removed("error: coldpad wrap-key was removed; use coldpad key wrap");
         }
         "unwrap-key" => {
-            eprintln!(
-                "{}",
-                color(
-                    ansi::RED,
-                    "error: coldpad unwrap-key was removed; use coldpad key unwrap"
-                )
-            );
-            process::exit(1);
+            exit_removed("error: coldpad unwrap-key was removed; use coldpad key unwrap");
         }
         "decrypt" | "d" | "info" | "i" if args.iter().any(|arg| arg == "--file") => {
-            eprintln!(
-                "{}",
-                color(
-                    ansi::RED,
-                    "error: --file was removed here; pass the .otp path as an argument"
-                )
-            );
-            process::exit(1);
+            exit_removed("error: --file was removed here; pass the .otp path as an argument");
         }
         _ => {}
     }
+}
+
+fn exit_removed(message: &str) -> ! {
+    eprintln!("{}", color(ansi::RED, message));
+    process::exit(1);
 }

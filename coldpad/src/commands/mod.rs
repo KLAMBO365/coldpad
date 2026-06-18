@@ -1,6 +1,6 @@
 use std::io::{self, IsTerminal};
 
-use crate::cli::{Cli, Command, EncryptOptions, KeyCommand};
+use crate::cli::{Cli, Command, EncryptOptions};
 use crate::output;
 use crate::terminal::{ansi, color};
 
@@ -47,30 +47,7 @@ pub fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             password,
             password_file,
         }) => info::run(file, encoding, password, password_file),
-        Some(Command::Key { command }) => match command {
-            KeyCommand::Generate {
-                length,
-                output,
-                force,
-                encoding,
-            } => key::run_generate(length, output, force, encoding),
-            KeyCommand::Wrap {
-                key_file,
-                output,
-                force,
-                password,
-                password_file,
-                encoding,
-            } => key::run_wrap(key_file, output, force, password, password_file, encoding),
-            KeyCommand::Unwrap {
-                key_file,
-                output,
-                force,
-                password,
-                password_file,
-                encoding,
-            } => key::run_unwrap(key_file, output, force, password, password_file, encoding),
-        },
+        Some(Command::Key { command }) => key::run(command),
         None => root(),
     }
 }

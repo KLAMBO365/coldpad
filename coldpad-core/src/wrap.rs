@@ -44,14 +44,18 @@ fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], WrapError> {
     Ok(key)
 }
 
+fn random_array<const N: usize>() -> [u8; N] {
+    let mut bytes = [0u8; N];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    bytes
+}
+
 /// Wrap a raw key with a password using Argon2id + AES-256-GCM.
 ///
 /// Returns ASCII text that can be stored in a `.otp.key` file.
 pub fn wrap_key(key: &[u8], password: &str) -> Vec<u8> {
-    let mut salt = [0u8; SALT_LEN];
-    let mut nonce = [0u8; NONCE_LEN];
-    rand::rngs::OsRng.fill_bytes(&mut salt);
-    rand::rngs::OsRng.fill_bytes(&mut nonce);
+    let salt = random_array::<SALT_LEN>();
+    let nonce = random_array::<NONCE_LEN>();
 
     let derived = derive_key(password, &salt).expect("argon2 params are valid");
     let cipher = Aes256Gcm::new_from_slice(&derived).expect("key length is correct");
@@ -60,19 +64,13 @@ pub fn wrap_key(key: &[u8], password: &str) -> Vec<u8> {
         .encrypt(nonce_slice, key)
         .expect("encryption should succeed");
 
-    let mut output = Vec::new();
-    output.extend_from_slice(HEADER.as_bytes());
-    output.push(b'\n');
-    output.extend_from_slice(b"salt:");
-    output.extend_from_slice(hex::encode(salt).as_bytes());
-    output.push(b'\n');
-    output.extend_from_slice(b"nonce:");
-    output.extend_from_slice(hex::encode(nonce).as_bytes());
-    output.push(b'\n');
-    output.extend_from_slice(b"ciphertext:");
-    output.extend_from_slice(hex::encode(&ciphertext).as_bytes());
-    output.push(b'\n');
-    output
+    format!(
+        "{HEADER}\nsalt:{}\nnonce:{}\nciphertext:{}\n",
+        hex::encode(salt),
+        hex::encode(nonce),
+        hex::encode(ciphertext)
+    )
+    .into_bytes()
 }
 
 /// Unwrap a password-protected key.
