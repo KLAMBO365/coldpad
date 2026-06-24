@@ -1,7 +1,6 @@
-use std::io::{self, IsTerminal};
-
 use crate::cli::{Cli, Command, EncryptOptions};
 use crate::output;
+use crate::prompt;
 use crate::terminal::{ansi, color};
 
 mod decrypt;
@@ -53,7 +52,18 @@ pub fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn root() -> Result<(), Box<dyn std::error::Error>> {
-    if io::stderr().is_terminal() {
+    if prompt::is_interactive_terminal() {
+        return secure::run();
+    }
+
+    print_concise_help();
+    Ok(())
+}
+
+fn print_concise_help() {
+    if crate::terminal::no_color() {
+        output::blank();
+    } else {
         eprint!("\x1b[2J\x1b[H");
     }
     let title = color(ansi::BOLD_CYAN, "coldpad \u{2014} one-time pad encryption");
@@ -79,5 +89,4 @@ fn root() -> Result<(), Box<dyn std::error::Error>> {
     output::info("  --help        ", "Show help for any command");
     output::info("  --version     ", "Show version information");
     output::group_end();
-    Ok(())
 }

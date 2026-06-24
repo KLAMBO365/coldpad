@@ -5,7 +5,6 @@ use crate::encoding::{decode_if_armored, encode_armored};
 use crate::io::{read_file, write_secret_file};
 use crate::key::{default_keygen_name, resolve_password};
 use crate::output;
-use crate::prompt::{prompt_path_required_if_terminal, prompt_required_if_terminal};
 
 pub fn run(command: KeyCommand) -> Result<(), Box<dyn std::error::Error>> {
     match command {
@@ -42,12 +41,7 @@ pub fn run_generate(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let length = match length {
         Some(length) => length,
-        None => prompt_required_if_terminal(
-            "Key length in bytes: ",
-            "key length required (use --length <bytes>)",
-        )?
-        .parse::<usize>()
-        .map_err(|_| "key length must be a whole number")?,
+        None => return Err("key length required: use --length <bytes>".into()),
     };
     let out_path = output.unwrap_or_else(default_keygen_name);
 
@@ -73,14 +67,11 @@ pub fn run_wrap(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let key_file = match key_file {
         Some(path) => path,
-        None => prompt_path_required_if_terminal("Key file to wrap: ", "no key file provided")?,
+        None => return Err("key file required: pass a key file to wrap".into()),
     };
     let output = match output {
         Some(path) => path,
-        None => prompt_path_required_if_terminal(
-            "Output wrapped key file: ",
-            "output path is required (use -o)",
-        )?,
+        None => return Err("output path required: use --output <file>".into()),
     };
     let password = resolve_password(password, password_file, "Password for wrapped key: ")?;
 
@@ -107,14 +98,11 @@ pub fn run_unwrap(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let key_file = match key_file {
         Some(path) => path,
-        None => prompt_path_required_if_terminal("Wrapped key file: ", "no key file provided")?,
+        None => return Err("wrapped key file required: pass a key file to unwrap".into()),
     };
     let output = match output {
         Some(path) => path,
-        None => prompt_path_required_if_terminal(
-            "Output unwrapped key file: ",
-            "output path is required (use -o)",
-        )?,
+        None => return Err("output path required: use --output <file>".into()),
     };
     let password = resolve_password(password, password_file, "Password for wrapped key: ")?;
 

@@ -1,4 +1,3 @@
-use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -11,23 +10,22 @@ use crate::terminal::{ansi, color};
 pub fn resolve_password(
     password: Option<String>,
     password_file: Option<PathBuf>,
-    prompt: &str,
+    _prompt: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     if let Some(pw) = password {
-        return Ok(pw);
-    }
-    if let Ok(pw) = std::env::var("COLDPAD_PASSWORD") {
         return Ok(pw);
     }
     if let Some(path) = password_file {
         let contents = std::fs::read_to_string(path)?;
         return Ok(contents.lines().next().unwrap_or("").to_string());
     }
-    if io::stderr().is_terminal() {
-        Ok(rpassword::prompt_password(prompt)?)
-    } else {
-        Err("password required for wrapped key".into())
+    if let Ok(pw) = std::env::var("COLDPAD_PASSWORD") {
+        return Ok(pw);
     }
+    Err(
+        "password required for wrapped key (use --password, --password-file, or COLDPAD_PASSWORD)"
+            .into(),
+    )
 }
 
 pub fn decode_key_file(
@@ -42,19 +40,6 @@ pub fn decode_key_file(
             .map_err(|e| format!("failed to unwrap key: {e}").into())
     } else {
         decode_if_armored(raw_key, encoding, "key")
-    }
-}
-
-pub fn prompt_password_for_wrapped_key(
-    ciphertext_file: &Path,
-) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let key_path = ciphertext_file.with_extension("otp.key");
-    if key_path.exists()
-        && std::fs::read(&key_path).is_ok_and(|key| coldpad_core::wrap::is_wrapped_key(&key))
-    {
-        Ok(Some(rpassword::prompt_password("Key password: ")?))
-    } else {
-        Ok(None)
     }
 }
 

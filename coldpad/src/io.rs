@@ -16,15 +16,12 @@ pub fn read_file(path: &Path) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     })
 }
 
-pub fn prepare_output_paths(
-    stem: &str,
+pub fn preflight_output_paths(
+    paths: &[PathBuf],
     force: bool,
-) -> Result<(PathBuf, PathBuf), Box<dyn std::error::Error>> {
-    let cipher_path = PathBuf::from(format!("{stem}.otp"));
-    let key_path = PathBuf::from(format!("{stem}.otp.key"));
-
+) -> Result<(), Box<dyn std::error::Error>> {
     if !force {
-        for path in [&cipher_path, &key_path] {
+        for path in paths {
             if path.exists() {
                 return Err(format!(
                     "'{}' already exists (use --force to overwrite)",
@@ -35,7 +32,7 @@ pub fn prepare_output_paths(
         }
     }
 
-    Ok((cipher_path, key_path))
+    Ok(())
 }
 
 fn write_file(

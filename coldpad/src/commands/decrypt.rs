@@ -6,7 +6,6 @@ use crate::encoding::decode_if_armored;
 use crate::io::read_file;
 use crate::key::{decode_key_file, verify_decryption};
 use crate::output;
-use crate::prompt::prompt_path_required_if_terminal;
 
 pub fn run(
     file: Option<PathBuf>,
@@ -28,10 +27,7 @@ pub fn run_with_policy(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = match file {
         Some(file) => file,
-        None => prompt_path_required_if_terminal(
-            "Ciphertext file: ",
-            "no ciphertext file provided. Pass a .otp file as an argument",
-        )?,
+        None => return Err("ciphertext file required: pass a .otp file".into()),
     };
     let raw_ciphertext = read_file(&file).map_err(|e| {
         let msg = e.to_string();

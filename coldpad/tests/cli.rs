@@ -48,6 +48,28 @@ fn coldpad_with_input(dir: &Path, args: &[&str], input: &str) -> std::process::O
 }
 
 #[test]
+fn root_without_tty_prints_help_and_exits_successfully() {
+    let dir = temp_dir("root-help");
+
+    let output = coldpad()
+        .current_dir(&dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run coldpad");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("usage:"));
+    assert!(stderr.contains("coldpad <COMMAND> [OPTIONS]"));
+}
+
+#[test]
 fn encrypt_rejects_text_and_file_together() {
     let dir = temp_dir("conflict");
     let input = dir.join("input.txt");
@@ -63,6 +85,53 @@ fn encrypt_rejects_text_and_file_together() {
         .expect("failed to run coldpad");
 
     assert!(!status.success());
+}
+
+#[test]
+fn direct_decrypt_and_info_require_ciphertext_path() {
+    let dir = temp_dir("missing-ciphertext-path");
+
+    for command in ["decrypt", "info"] {
+        let output = coldpad()
+            .current_dir(&dir)
+            .arg(command)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("failed to run coldpad");
+
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("ciphertext file required"));
+    }
+}
+
+#[test]
+fn encrypt_preflights_all_planned_outputs() {
+    for conflict in ["output.otp", "output.otp.key", "output.otp.sha256"] {
+        let dir = temp_dir(&format!("encrypt-preflight-{conflict}"));
+        fs::write(dir.join(conflict), b"existing").expect("failed to seed conflict");
+
+        let output = coldpad()
+            .current_dir(&dir)
+            .args(["encrypt", "--hash", "secret"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("failed to run coldpad encrypt");
+
+        assert!(!output.status.success());
+        assert_eq!(
+            fs::read(dir.join(conflict)).expect("failed to read conflict"),
+            b"existing"
+        );
+
+        for path in ["output.otp", "output.otp.key", "output.otp.sha256"] {
+            if path != conflict {
+                assert!(!dir.join(path).exists(), "{path} should not be created");
+            }
+        }
+    }
 }
 
 #[test]
@@ -114,7 +183,7 @@ fn secure_encrypts_text_from_scripted_stdin() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("What do you want to encrypt?"));
+    assert!(stderr.contains("Choose input source"));
     assert!(stderr.contains("Selection:"));
     assert!(!stderr.contains("Input source"));
     assert!(!stderr.contains("Choose 1"));
@@ -254,6 +323,77 @@ fn wrap_key_requires_output() {
         .expect("failed to run coldpad key wrap");
 
     assert!(!status.success());
+}
+
+#[test]
+fn wrap_and_unwrap_require_direct_inputs() {
+    let dir = temp_dir("key-direct-inputs");
+    fs::write(dir.join("plain.key"), b"1234").expect("failed to write key");
+    let wrapped = coldpad_core::wrap::wrap_key(b"1234", "pw");
+    fs::write(dir.join("wrapped.key"), wrapped).expect("failed to write wrapped key");
+
+    let wrap = coldpad()
+        .current_dir(&dir)
+        .args(["key", "wrap", "-o", "out.key", "--password", "pw"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run coldpad key wrap");
+    assert!(!wrap.status.success());
+    assert!(String::from_utf8_lossy(&wrap.stderr).contains("key file required"));
+
+    let unwrap = coldpad()
+        .current_dir(&dir)
+        .args(["key", "unwrap", "wrapped.key", "--password", "pw"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run coldpad key unwrap");
+    assert!(!unwrap.status.success());
+    assert!(String::from_utf8_lossy(&unwrap.stderr).contains("output path required"));
+}
+
+#[test]
+fn wrapped_key_commands_require_password_source() {
+    let dir = temp_dir("wrapped-password-required");
+
+    let encrypt = coldpad()
+        .current_dir(&dir)
+        .args(["encrypt", "--wrap-key", "secret"])
+        .env_remove("COLDPAD_PASSWORD")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run coldpad encrypt");
+    assert!(!encrypt.status.success());
+    assert!(String::from_utf8_lossy(&encrypt.stderr).contains("password required"));
+    assert!(!dir.join("output.otp").exists());
+    assert!(!dir.join("output.otp.key").exists());
+
+    fs::write(dir.join("plain.key"), b"1234").expect("failed to write key");
+    let wrap = coldpad()
+        .current_dir(&dir)
+        .args(["key", "wrap", "plain.key", "-o", "wrapped.key"])
+        .env_remove("COLDPAD_PASSWORD")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run coldpad key wrap");
+    assert!(!wrap.status.success());
+    assert!(String::from_utf8_lossy(&wrap.stderr).contains("password required"));
+
+    let wrapped = coldpad_core::wrap::wrap_key(b"1234", "pw");
+    fs::write(dir.join("wrapped.key"), wrapped).expect("failed to write wrapped key");
+    let unwrap = coldpad()
+        .current_dir(&dir)
+        .args(["key", "unwrap", "wrapped.key", "-o", "plain-out.key"])
+        .env_remove("COLDPAD_PASSWORD")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run coldpad key unwrap");
+    assert!(!unwrap.status.success());
+    assert!(String::from_utf8_lossy(&unwrap.stderr).contains("password required"));
 }
 
 #[test]

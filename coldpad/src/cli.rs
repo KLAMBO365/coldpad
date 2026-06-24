@@ -38,7 +38,7 @@ pub enum Command {
             conflicts_with = "file"
         )]
         text: Option<String>,
-        #[arg(short = 'o', long, help = "Output filename stem (default: output)")]
+        #[arg(short = 'o', long, help = "Output base name for .otp/.key files")]
         output: Option<String>,
         #[arg(short = 'f', long, help = "Overwrite existing output files")]
         force: bool,

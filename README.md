@@ -69,7 +69,7 @@ $ coldpad encrypt "hello world"
     Wrote output.otp.key
 ```
 
-Encrypt with a custom output stem:
+Encrypt with a custom output base name, creating `secret.otp` and `secret.otp.key`:
 
 ```console
 $ coldpad encrypt -o secret "hello world"
@@ -96,7 +96,7 @@ $ coldpad encrypt --hash "important data"
 Password-protect the generated key:
 
 ```console
-$ coldpad encrypt --wrap-key --hash "important data"
+$ coldpad encrypt --wrap-key --password-file key.pass --hash "important data"
 ```
 
 Use text encoding for files that need it:
@@ -123,9 +123,9 @@ $ coldpad key generate --length 32
 
 $ coldpad key generate --length 32 --output mykey.key --encoding hex
 
-$ coldpad key wrap mykey.key --output wrapped.key
+$ coldpad key wrap mykey.key --output wrapped.key --password-file key.pass
 
-$ coldpad key unwrap wrapped.key --output mykey.key
+$ coldpad key unwrap wrapped.key --output mykey.key --password-file key.pass
 ```
 
 Show details about an encrypted file:
@@ -142,8 +142,8 @@ The `--wrap-key` flag password-protects the generated `.otp.key` file instead
 of writing the raw one-time pad key to disk.
 
 When a hash file is present, decryption verifies it before writing `-o` output.
-For wrapped keys, coldpad prompts for the password in a terminal; use
-`--password-file` for non-interactive runs.
+For wrapped keys in direct commands, provide a password with `--password`,
+`--password-file`, or `COLDPAD_PASSWORD`.
 
 Use `--encoding raw`, `--encoding base64`, or `--encoding hex` when ciphertext
 and raw key files need a specific representation. Wrapped key files are already

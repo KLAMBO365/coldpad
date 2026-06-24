@@ -8,5 +8,6 @@ license.workspace = true
 clap.workspace = true
 base64.workspace = true
 hex.workspace = true
-rpassword.workspace = true
+console.workspace = true
+dialoguer.workspace = true
 coldpad-core.path = "../coldpad-core"
