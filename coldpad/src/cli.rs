@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::process;
 
@@ -197,32 +198,38 @@ pub struct EncryptOptions {
 }
 
 pub fn reject_removed_cli_forms() {
-    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     if args.is_empty() {
         return;
     }
 
-    if args.iter().any(|arg| arg == "--base64" || arg == "--hex") {
+    if args
+        .iter()
+        .any(|arg| os_arg_in(arg.as_os_str(), &["--base64", "--hex"]))
+    {
         exit_removed(
             "error: --base64 and --hex were removed; use --encoding base64 or --encoding hex",
         );
     }
 
-    match args[0].as_str() {
-        "keygen" | "k" => {
-            exit_removed("error: coldpad keygen was removed; use coldpad key generate");
-        }
-        "wrap-key" => {
-            exit_removed("error: coldpad wrap-key was removed; use coldpad key wrap");
-        }
-        "unwrap-key" => {
-            exit_removed("error: coldpad unwrap-key was removed; use coldpad key unwrap");
-        }
-        "decrypt" | "d" | "info" | "i" if args.iter().any(|arg| arg == "--file") => {
-            exit_removed("error: --file was removed here; pass the .otp path as an argument");
-        }
-        _ => {}
+    let command = args[0].as_os_str();
+    if os_arg_in(command, &["keygen", "k"]) {
+        exit_removed("error: coldpad keygen was removed; use coldpad key generate");
+    } else if os_arg_in(command, &["wrap-key"]) {
+        exit_removed("error: coldpad wrap-key was removed; use coldpad key wrap");
+    } else if os_arg_in(command, &["unwrap-key"]) {
+        exit_removed("error: coldpad unwrap-key was removed; use coldpad key unwrap");
+    } else if os_arg_in(command, &["decrypt", "d", "info", "i"])
+        && args
+            .iter()
+            .any(|arg| os_arg_in(arg.as_os_str(), &["--file"]))
+    {
+        exit_removed("error: --file was removed here; pass the .otp path as an argument");
     }
+}
+
+fn os_arg_in(arg: &OsStr, values: &[&str]) -> bool {
+    values.iter().any(|value| arg == OsStr::new(value))
 }
 
 fn exit_removed(message: &str) -> ! {

@@ -87,6 +87,35 @@ fn encrypt_rejects_text_and_file_together() {
     assert!(!status.success());
 }
 
+#[cfg(unix)]
+#[test]
+fn encrypt_accepts_non_utf8_file_paths() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = temp_dir("non-utf8-file");
+    let file_name = OsString::from_vec(b"input-\xff.txt".to_vec());
+    let input = dir.join(&file_name);
+    fs::write(&input, b"from-file").expect("failed to write input");
+
+    let output = coldpad()
+        .current_dir(&dir)
+        .args(["encrypt", "--file"])
+        .arg(&input)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run coldpad encrypt");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(dir.join("output.otp").exists());
+    assert!(dir.join("output.otp.key").exists());
+}
+
 #[test]
 fn direct_decrypt_and_info_require_ciphertext_path() {
     let dir = temp_dir("missing-ciphertext-path");
@@ -203,6 +232,39 @@ fn secure_encrypts_text_from_scripted_stdin() {
         String::from_utf8_lossy(&decrypted.stderr)
     );
     assert_eq!(decrypted.stdout, b"secret");
+}
+
+#[test]
+fn secure_encrypts_stdin_source_after_scripted_answers() {
+    let dir = temp_dir("secure-encrypt-stdin-source");
+
+    let output = coldpad_with_input(
+        &dir,
+        &["secure"],
+        "encrypt\nstdin\nsecure-pipe\ny\nn\nraw\ny\nsecret from pipe",
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(dir.join("secure-pipe.otp").exists());
+    assert!(dir.join("secure-pipe.otp.key").exists());
+    assert!(dir.join("secure-pipe.otp.sha256").exists());
+
+    let decrypted = coldpad()
+        .current_dir(&dir)
+        .args(["decrypt", "secure-pipe.otp"])
+        .output()
+        .expect("failed to run coldpad decrypt");
+
+    assert!(
+        decrypted.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&decrypted.stderr)
+    );
+    assert_eq!(decrypted.stdout, b"secret from pipe");
 }
 
 #[test]

@@ -683,7 +683,8 @@ fn prompt_step_confirm_writes(
         },
     ];
 
-    let action = prompt_interactive_step_menu(0, &items, true, |selected| {
+    let initial_selected = write_confirmation_initial_selection(existing);
+    let action = prompt_interactive_step_menu(initial_selected, &items, true, |selected| {
         let mut lines = step_header_lines(
             workflow,
             step,
@@ -720,6 +721,10 @@ fn prompt_step_confirm_writes(
         StepAction::Back => StepValue::Back,
         StepAction::Cancel => StepValue::Cancel,
     })
+}
+
+fn write_confirmation_initial_selection(existing: usize) -> usize {
+    usize::from(existing > 0)
 }
 
 fn step_value_or_flow<T>(value: StepValue<T>) -> Result<T, FlowExit> {
@@ -1484,24 +1489,27 @@ fn secure_encrypt_scripted() -> Result<FlowExit, Box<dyn std::error::Error>> {
         StepAction::Back => return Ok(FlowExit::BackToMenu),
         StepAction::Cancel => return Ok(FlowExit::Cancel),
     };
+    let source = match source {
+        0 => EncryptSource::Text,
+        1 => EncryptSource::File,
+        _ => EncryptSource::Stdin,
+    };
 
     let (text, file) = match source {
-        0 => {
+        EncryptSource::Text => {
             render_step_input("encrypt", 1, 4, "Enter plaintext")?;
             let text = prompt_line("Text to encrypt: ")?;
             (Some(text), None)
         }
-        1 => {
+        EncryptSource::File => {
             render_step_input("encrypt", 1, 4, "Choose file")?;
             (None, Some(prompt_path("File to encrypt: ")?))
         }
-        _ => {
+        EncryptSource::Stdin => {
             if io::stdin().is_terminal() {
                 return Err("stdin source requires piped input".into());
             }
-            let mut plaintext = Vec::new();
-            io::stdin().read_to_end(&mut plaintext)?;
-            (Some(String::from_utf8(plaintext)?), None)
+            (None, None)
         }
     };
 
@@ -1835,6 +1843,13 @@ mod tests {
             step_action_for_key(Key::Char('h'), 0, &items, true),
             Some(StepAction::Select(2))
         ));
+    }
+
+    #[test]
+    fn overwrite_confirmation_starts_on_abort_when_files_exist() {
+        assert_eq!(write_confirmation_initial_selection(0), 0);
+        assert_eq!(write_confirmation_initial_selection(1), 1);
+        assert_eq!(write_confirmation_initial_selection(3), 1);
     }
 
     #[test]
