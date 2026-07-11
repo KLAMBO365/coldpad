@@ -87,6 +87,19 @@ fn encrypt_rejects_text_and_file_together() {
     assert!(!status.success());
 }
 
+#[test]
+fn encrypt_missing_file_names_the_path() {
+    let dir = temp_dir("missing-input");
+    let output = coldpad()
+        .current_dir(&dir)
+        .args(["encrypt", "--file", "missing.bin"])
+        .output()
+        .expect("failed to run coldpad");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("'missing.bin' not found"));
+}
+
 #[cfg(unix)]
 #[test]
 fn encrypt_accepts_non_utf8_file_paths() {
@@ -194,6 +207,54 @@ fn failed_hashed_decrypt_does_not_overwrite_output_file() {
         fs::read(&output).expect("failed to read output file"),
         b"original"
     );
+}
+
+#[test]
+fn decrypt_requires_force_to_overwrite_output_file() {
+    let dir = temp_dir("decrypt-force");
+    fs::write(dir.join("plain.txt"), b"original").expect("failed to seed output file");
+
+    assert!(
+        coldpad()
+            .current_dir(&dir)
+            .args(["encrypt", "secret"])
+            .status()
+            .expect("failed to encrypt")
+            .success()
+    );
+
+    let refused = coldpad()
+        .current_dir(&dir)
+        .args(["decrypt", "output.otp", "-o", "plain.txt"])
+        .output()
+        .expect("failed to decrypt");
+    assert!(!refused.status.success());
+    assert_eq!(fs::read(dir.join("plain.txt")).unwrap(), b"original");
+
+    let forced = coldpad()
+        .current_dir(&dir)
+        .args(["decrypt", "output.otp", "-o", "plain.txt", "--force"])
+        .output()
+        .expect("failed to decrypt");
+    assert!(forced.status.success());
+    assert_eq!(fs::read(dir.join("plain.txt")).unwrap(), b"secret");
+}
+
+#[test]
+fn failed_forced_encrypt_preserves_existing_output_set() {
+    let dir = temp_dir("encrypt-transaction");
+    fs::write(dir.join("output.otp"), b"old ciphertext").unwrap();
+    fs::create_dir(dir.join("output.otp.key")).unwrap();
+
+    let output = coldpad()
+        .current_dir(&dir)
+        .args(["encrypt", "--force", "replacement"])
+        .output()
+        .expect("failed to run coldpad encrypt");
+
+    assert!(!output.status.success());
+    assert_eq!(fs::read(dir.join("output.otp")).unwrap(), b"old ciphertext");
+    assert!(dir.join("output.otp.key").is_dir());
 }
 
 #[test]
@@ -858,7 +919,8 @@ fn info_with_wrapped_key_and_password() {
         String::from_utf8_lossy(&info.stderr)
     );
     let stderr = String::from_utf8_lossy(&info.stderr);
-    assert!(stderr.contains("key matches"));
+    assert!(stderr.contains("integrity not verified"));
+    assert!(!stderr.contains("key matches"));
 }
 
 #[cfg(unix)]

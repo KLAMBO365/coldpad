@@ -36,10 +36,11 @@ pub fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Some(Command::Decrypt {
             file,
             output,
+            force,
             encoding,
             password,
             password_file,
-        }) => decrypt::run(file, output, encoding, password, password_file),
+        }) => decrypt::run(file, output, force, encoding, password, password_file),
         Some(Command::Info {
             file,
             encoding,

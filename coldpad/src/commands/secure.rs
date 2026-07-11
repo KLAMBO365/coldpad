@@ -399,6 +399,7 @@ fn step_menu_lines(
     divider: &str,
 ) -> Vec<String> {
     let mut lines = step_header_lines(view.workflow, view.step, view.total, width, divider);
+    lines.extend(workflow_progress_lines(view.workflow, view.step));
     lines.push(color(ansi::BOLD, view.heading));
     lines.push(String::new());
 
@@ -558,9 +559,42 @@ fn render_step_input(
         &format!("coldpad secure / {workflow}"),
         output::WorkflowStatus::Step(step, total),
     );
+    output::progress(&workflow_progress_items(workflow, step));
     eprintln!("{}", color(ansi::BOLD, heading));
     eprintln!();
     Ok(())
+}
+
+fn workflow_progress_labels(workflow: &str) -> [&'static str; 4] {
+    match workflow {
+        "decrypt" => ["Ciphertext", "Output", "Encoding", "Confirm"],
+        "keygen" => ["Length", "Output", "Encoding", "Confirm"],
+        "info" => ["Ciphertext", "Key", "Encoding", "Inspect"],
+        "wrap key" => ["Key", "Output", "Encoding", "Password"],
+        "unwrap key" => ["Wrapped key", "Output", "Encoding", "Password"],
+        _ => ["Input", "Output", "Options", "Confirm"],
+    }
+}
+
+fn workflow_progress_items(workflow: &str, step: usize) -> [output::ProgressItem<'static>; 4] {
+    let labels = workflow_progress_labels(workflow);
+    std::array::from_fn(|index| output::ProgressItem {
+        label: labels[index],
+        state: if index + 1 < step {
+            output::ProgressState::Done
+        } else if index + 1 == step {
+            output::ProgressState::Active
+        } else {
+            output::ProgressState::Pending
+        },
+    })
+}
+
+fn workflow_progress_lines(workflow: &str, step: usize) -> Vec<String> {
+    vec![
+        output::progress_line(&workflow_progress_items(workflow, step)),
+        String::new(),
+    ]
 }
 
 fn prompt_step_yes_no(
@@ -692,6 +726,7 @@ fn prompt_step_confirm_writes(
             output::WORKFLOW_WIDTH,
             &output::divider(output::WORKFLOW_WIDTH),
         );
+        lines.extend(workflow_progress_lines(workflow, step));
         lines.push(color(ansi::BOLD, "Review files"));
         lines.push(String::new());
         for path in paths {
@@ -1691,18 +1726,20 @@ fn secure_keygen() -> Result<FlowExit, Box<dyn std::error::Error>> {
 }
 
 fn secure_info() -> Result<FlowExit, Box<dyn std::error::Error>> {
-    render_step_input("info", 1, 2, "Choose ciphertext")?;
+    render_step_input("info", 1, 4, "Choose ciphertext")?;
     let file = prompt_path("Ciphertext file: ")?;
+    render_step_input("info", 2, 4, "Check key")?;
     let password = prompt_wrapped_key_password(&file)?;
     let encoding = match step_value_or_flow(prompt_step_encoding(
         "info",
-        2,
-        2,
+        3,
+        4,
         "Choose ciphertext and key encoding",
     )?) {
         Ok(value) => value,
         Err(flow) => return Ok(flow),
     };
+    render_step_input("info", 4, 4, "Inspect files")?;
     super::info::run(Some(file), encoding, password, None)?;
     Ok(FlowExit::Done)
 }
@@ -1792,6 +1829,18 @@ fn secure_unwrap_key() -> Result<FlowExit, Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_guided_workflow_has_four_progress_parts() {
+        for workflow in ["decrypt", "keygen", "info", "wrap key", "unwrap key"] {
+            let items = workflow_progress_items(workflow, 2);
+            assert_eq!(items.len(), 4);
+            assert!(matches!(items[0].state, output::ProgressState::Done));
+            assert!(matches!(items[1].state, output::ProgressState::Active));
+            assert!(matches!(items[2].state, output::ProgressState::Pending));
+            assert!(matches!(items[3].state, output::ProgressState::Pending));
+        }
+    }
 
     #[test]
     fn workflow_key_actions_support_numbers_letters_and_enter() {

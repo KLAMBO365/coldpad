@@ -4,7 +4,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::cli::Encoding;
 use crate::encoding::decode_if_armored;
 use crate::io::read_hash_file;
-use crate::output;
 use crate::terminal::{ansi, color};
 
 pub fn resolve_password(
@@ -70,22 +69,23 @@ pub fn planned_encrypt_paths(stem: &str, hash: bool) -> Vec<PathBuf> {
     paths
 }
 
+pub enum IntegrityStatus {
+    SidecarMatched,
+    NotVerified,
+}
+
 pub fn verify_decryption(
     ciphertext: &[u8],
     key: &[u8],
     plaintext: &[u8],
     file: &Path,
-    verbose: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<IntegrityStatus, Box<dyn std::error::Error>> {
     let hash_path = file.with_extension("otp.sha256");
 
     match read_hash_file(&hash_path)? {
         Some(expected) => {
             if coldpad_core::hash::verify(plaintext, &expected) {
-                if verbose {
-                    output::info("integrity:     ", "hash verified");
-                }
-                Ok(())
+                Ok(IntegrityStatus::SidecarMatched)
             } else {
                 Err("ciphertext has been tampered with or wrong key".into())
             }
@@ -99,15 +99,12 @@ pub fn verify_decryption(
                 )
                 .into());
             }
-            if verbose {
-                output::info("integrity:     ", "key length matches");
-            }
-            Ok(())
+            Ok(IntegrityStatus::NotVerified)
         }
     }
 }
 
 pub fn key_matches_status(hash_path: &Path) -> String {
-    let status = color(ansi::GREEN, "key matches");
+    let status = color(ansi::YELLOW, "integrity not verified");
     format!("{}  (missing)  {}", hash_path.display(), status)
 }

@@ -3,18 +3,19 @@ use std::path::PathBuf;
 
 use crate::cli::Encoding;
 use crate::encoding::decode_if_armored;
-use crate::io::read_file;
+use crate::io::{preflight_output_paths, read_file};
 use crate::key::{decode_key_file, verify_decryption};
 use crate::output;
 
 pub fn run(
     file: Option<PathBuf>,
     output: Option<PathBuf>,
+    force: bool,
     encoding: Encoding,
     password: Option<String>,
     password_file: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    run_with_policy(file, output, encoding, true, password, password_file)
+    run_with_policy(file, output, encoding, force, password, password_file)
 }
 
 pub fn run_with_policy(
@@ -29,6 +30,9 @@ pub fn run_with_policy(
         Some(file) => file,
         None => return Err("ciphertext file required: pass a .otp file".into()),
     };
+    if let Some(out_path) = &output {
+        preflight_output_paths(std::slice::from_ref(out_path), allow_output_overwrite)?;
+    }
     let raw_ciphertext = read_file(&file).map_err(|e| {
         let msg = e.to_string();
         if msg.contains("not found") {
@@ -62,10 +66,7 @@ pub fn run_with_policy(
 
     let plaintext = coldpad_core::decrypt(&ciphertext, &key);
 
-    output::group_start("coldpad decrypt");
-    output::info("decrypted:     ", format!("{} bytes", plaintext.len()));
-
-    verify_decryption(&ciphertext, &key, &plaintext, &file, true)?;
+    let integrity = verify_decryption(&ciphertext, &key, &plaintext, &file)?;
 
     if let Some(out_path) = &output {
         crate::io::write_output_file(out_path, &plaintext, allow_output_overwrite)?;
@@ -73,6 +74,19 @@ pub fn run_with_policy(
         output::warn("output looks like binary data \u{2014} use -o to write to a file");
     }
 
+    output::group_start("coldpad decrypt");
+    output::info("decrypted:     ", format!("{} bytes", plaintext.len()));
+    match integrity {
+        crate::key::IntegrityStatus::SidecarMatched => {
+            output::info(
+                "integrity:     ",
+                "SHA-256 sidecar matches (not authenticated)",
+            );
+        }
+        crate::key::IntegrityStatus::NotVerified => {
+            output::warn("integrity not verified (no hash file; key length only)");
+        }
+    }
     output::blank();
     output::success("Decryption complete");
     output::group_end();

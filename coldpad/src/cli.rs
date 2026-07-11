@@ -84,6 +84,8 @@ pub enum Command {
             help = "Write decrypted output to a file instead of stdout"
         )]
         output: Option<PathBuf>,
+        #[arg(short = 'f', long, help = "Overwrite an existing output file")]
+        force: bool,
         #[arg(
             long,
             value_enum,

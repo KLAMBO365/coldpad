@@ -1,6 +1,6 @@
 use crate::cli::EncryptOptions;
 use crate::encoding::encode_armored;
-use crate::io::{preflight_output_paths, write_hash_file, write_output_file, write_secret_file};
+use crate::io::{PlannedWrite, preflight_output_paths, read_file, write_files_atomically};
 use crate::key::planned_encrypt_paths;
 use crate::key::resolve_password;
 use crate::output;
@@ -52,7 +52,7 @@ pub fn execute(options: EncryptOptions) -> Result<EncryptResult, Box<dyn std::er
     } = options;
 
     let plaintext = if let Some(path) = &file {
-        std::fs::read(path)?
+        read_file(path)?
     } else {
         read_input(text)?
     };
@@ -88,11 +88,17 @@ pub fn execute(options: EncryptOptions) -> Result<EncryptResult, Box<dyn std::er
         encode_armored(&key, encoding)
     };
 
-    write_output_file(&cipher_path, &out_cipher, force)?;
-    write_secret_file(&key_path, &out_key, force)?;
-    if let Some(path) = &hash_path {
-        write_hash_file(path, &plaintext, force)?;
+    let hash_contents = hash_path
+        .as_ref()
+        .map(|_| coldpad_core::hash::compute(&plaintext).into_bytes());
+    let mut writes = vec![
+        PlannedWrite::new(&cipher_path, &out_cipher, false),
+        PlannedWrite::new(&key_path, &out_key, true),
+    ];
+    if let (Some(path), Some(contents)) = (&hash_path, &hash_contents) {
+        writes.push(PlannedWrite::new(path, contents, false));
     }
+    write_files_atomically(&writes, force)?;
 
     Ok(EncryptResult {
         key_bytes: key.len(),

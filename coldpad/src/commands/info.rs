@@ -47,7 +47,11 @@ pub fn run(
     }
     output::info(
         "key:           ",
-        format!("{}  {} bytes  matches", key_path.display(), key.len()),
+        format!(
+            "{}  {} bytes  length matches",
+            key_path.display(),
+            key.len()
+        ),
     );
 
     match &hash_data {
@@ -56,7 +60,7 @@ pub fn run(
             if coldpad_core::hash::verify(&plaintext, expected) {
                 output::info(
                     "hash:          ",
-                    format!("{}  verified", hash_path.display()),
+                    format!("{}  matches (not authenticated)", hash_path.display()),
                 );
             } else {
                 return Err("ciphertext has been tampered with or wrong key".into());
@@ -68,7 +72,7 @@ pub fn run(
     }
 
     if hash_data.is_some() {
-        output::success("Integrity check passed");
+        output::success("SHA-256 sidecar check passed");
     }
     output::group_end();
     Ok(())
